@@ -251,6 +251,13 @@ function App() {
               : (v.resultDisplay ?? v.responseParts ?? { ok: true });
             updateMsg(sid, mid, { result, duration: Date.now() });
           }
+        } else if (type === "tool_output_update") {
+          const v = evt.value || {};
+          pushDebug(sid, "tool_output_update", v);
+          const mid = toolByCallId.get(v.callId);
+          if (mid) {
+            updateMsg(sid, mid, { liveOutput: v.output });
+          }
         } else if (type === "tool_confirmation_request") {
           const v = evt.value || {};
           pushDebug(sid, "tool_confirmation_request", v);

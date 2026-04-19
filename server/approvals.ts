@@ -46,9 +46,16 @@ export type PendingApproval = {
   details: unknown;
 };
 
+export type ToolLiveOutputPayload = {
+  liveOutput?: unknown;
+  progressMessage?: string;
+  progressPercent?: number;
+};
+
 export type ApprovalEvent =
   | { type: 'tool_confirmation_request'; value: PendingApproval }
-  | { type: 'tool_confirmation_resolved'; value: { correlationId: string; outcome: ApprovalOutcome } };
+  | { type: 'tool_confirmation_resolved'; value: { correlationId: string; outcome: ApprovalOutcome } }
+  | { type: 'tool_output_update'; value: { callId: string; output: ToolLiveOutputPayload } };
 
 /**
  * Bridge owned by a single in-flight stream. Outlives no stream — create one
@@ -58,6 +65,7 @@ export class ApprovalBridge {
   readonly id = randomUUID();
   private readonly pending = new Map<string, PendingApproval>();
   private readonly seen = new Set<string>();
+  private readonly lastOutputByCallId = new Map<string, string>();
   private readonly listener: (msg: ToolCallsUpdateMessage) => void;
   private disposed = false;
   private emit: (event: ApprovalEvent) => void;
@@ -129,19 +137,42 @@ export class ApprovalBridge {
 
   private onToolCallsUpdate(msg: ToolCallsUpdateMessage): void {
     for (const call of msg.toolCalls) {
-      if (call.status !== 'awaiting_approval') continue;
-      const correlationId = (call as { correlationId?: string }).correlationId;
-      if (!correlationId || this.seen.has(correlationId)) continue;
-      this.seen.add(correlationId);
-      const pending: PendingApproval = {
-        correlationId,
-        callId: call.request.callId,
-        toolName: call.request.name,
-        args: (call.request.args ?? {}) as Record<string, unknown>,
-        details: (call as { confirmationDetails?: unknown }).confirmationDetails,
-      };
-      this.pending.set(correlationId, pending);
-      this.emit({ type: 'tool_confirmation_request', value: pending });
+      if (call.status === 'awaiting_approval') {
+        const correlationId = (call as { correlationId?: string }).correlationId;
+        if (!correlationId || this.seen.has(correlationId)) continue;
+        this.seen.add(correlationId);
+        const pending: PendingApproval = {
+          correlationId,
+          callId: call.request.callId,
+          toolName: call.request.name,
+          args: (call.request.args ?? {}) as Record<string, unknown>,
+          details: (call as { confirmationDetails?: unknown }).confirmationDetails,
+        };
+        this.pending.set(correlationId, pending);
+        this.emit({ type: 'tool_confirmation_request', value: pending });
+        continue;
+      }
+
+      if (call.status === 'executing') {
+        const exec = call as {
+          request: { callId: string };
+          liveOutput?: unknown;
+          progressMessage?: string;
+          progressPercent?: number;
+        };
+        const payload: ToolLiveOutputPayload = {};
+        if (exec.liveOutput !== undefined) payload.liveOutput = exec.liveOutput;
+        if (exec.progressMessage !== undefined) payload.progressMessage = exec.progressMessage;
+        if (exec.progressPercent !== undefined) payload.progressPercent = exec.progressPercent;
+        if (Object.keys(payload).length === 0) continue;
+        // Dedupe identical updates (TOOL_CALLS_UPDATE fires on every state change,
+        // many of which don't touch output).
+        const callId = exec.request.callId;
+        const fingerprint = JSON.stringify(payload);
+        if (this.lastOutputByCallId.get(callId) === fingerprint) continue;
+        this.lastOutputByCallId.set(callId, fingerprint);
+        this.emit({ type: 'tool_output_update', value: { callId, output: payload } });
+      }
     }
   }
 }

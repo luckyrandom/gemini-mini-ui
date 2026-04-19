@@ -429,6 +429,8 @@ function ToolCallRow({ m, defaultOpen }) {
   const duration = m.duration && m.startedAt ? `${m.duration - m.startedAt}ms` : (m.result == null ? "…" : "");
   const inlineArg = pickInlineArg(m.args);
   const resultView = renderResult(m.result, m.name);
+  const liveText = m.result == null ? extractLiveText(m.liveOutput) : "";
+  const progressMsg = m.result == null ? (m.liveOutput?.progressMessage || "") : "";
   const usesOwnContainer = React.isValidElement(resultView) && (
     resultView.type === FileDiffView ||
     resultView.type === ShellResultView ||
@@ -443,6 +445,7 @@ function ToolCallRow({ m, defaultOpen }) {
         <ToolIcon />
         <span className="tool-name">{m.name}</span>
         {awaiting && <span className="awaiting">awaiting approval</span>}
+        {progressMsg && <span className="awaiting">{progressMsg}</span>}
         {inlineArg && (
           <>
             <span style={{ color: "var(--fg-dim)" }}>(</span>
@@ -461,13 +464,34 @@ function ToolCallRow({ m, defaultOpen }) {
             <pre>{highlight(argsStr, "json")}</pre>
           </div>
           <div>
-            <div className="sec-h">result</div>
-            {usesOwnContainer ? resultView : <pre>{resultView}</pre>}
+            <div className="sec-h">{m.result == null && liveText ? "live output" : "result"}</div>
+            {m.result == null && liveText
+              ? <pre>{liveText}</pre>
+              : (usesOwnContainer ? resultView : <pre>{resultView}</pre>)}
           </div>
         </div>
       )}
     </div>
   );
+}
+
+function extractLiveText(live) {
+  if (!live) return "";
+  const out = live.liveOutput;
+  if (typeof out === "string") return out;
+  // AnsiOutput: array of lines (AnsiLine[]); each line is AnsiToken[] with .text.
+  if (Array.isArray(out)) {
+    try {
+      return out
+        .map((line) => Array.isArray(line) ? line.map((t) => t?.text ?? "").join("") : String(line ?? ""))
+        .join("\n");
+    } catch { return ""; }
+  }
+  // SubagentProgress or other shapes: stringify as a fallback.
+  if (typeof out === "object" && out) {
+    try { return JSON.stringify(out, null, 2); } catch { return ""; }
+  }
+  return "";
 }
 
 function safeStringify(v) {
