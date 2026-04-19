@@ -239,19 +239,19 @@ input, textarea { font: inherit; color: inherit; }
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 6px 12px;
+  padding: 4px 6px 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
-.dir-group { margin: 0 0 4px; }
+.dir-group { margin: 0 0 2px; }
 .dir-head {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 8px;
+  padding: 3px 8px;
   border-radius: var(--r-sm);
   color: var(--fg-muted);
   font-family: var(--font-mono);
@@ -288,22 +288,19 @@ input, textarea { font: inherit; color: inherit; }
 .dir-items {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   margin-left: 2px;
   padding-left: 8px;
   border-left: 1px dashed var(--border);
 }
 
 .title-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.35;
-  white-space: normal;
-  word-break: break-word;
+  line-height: 1.3;
 }
 .session-list::-webkit-scrollbar { width: 8px; }
 .session-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
@@ -321,14 +318,15 @@ input, textarea { font: inherit; color: inherit; }
 .session-row {
   position: relative;
   display: block;
-  padding: 6px 9px 7px;
-  border-radius: var(--r-md);
+  padding: 3px 8px 3px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: background 100ms ease;
   border: 1px solid transparent;
 }
 .session-row:hover { background: var(--bg-hover); }
 .session-row:hover .row-menu { opacity: 1; }
+.session-row:hover .meta { opacity: 0; }
 .session-row.active {
   background: var(--bg-active);
   border-color: color-mix(in oklab, var(--accent) 25%, transparent);
@@ -336,21 +334,22 @@ input, textarea { font: inherit; color: inherit; }
 .session-row.active::before {
   content: "";
   position: absolute;
-  left: -1px; top: 10%; bottom: 10%;
+  left: -1px; top: 15%; bottom: 15%;
   width: 2px;
   background: var(--accent);
   border-radius: 1px;
 }
 .session-row .title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--fg);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
   padding-right: 22px;
+  min-width: 0;
 }
-.session-row .title .streaming-dot { margin-top: 6px; }
+.session-row .title .streaming-dot { flex-shrink: 0; }
 .session-row.editing { cursor: text; }
 .session-row .title-edit {
   flex: 1;
@@ -365,13 +364,17 @@ input, textarea { font: inherit; color: inherit; }
   box-shadow: 0 0 0 2px var(--accent-glow, rgba(99, 102, 241, 0.18));
 }
 .session-row .meta {
-  margin-top: 3px;
-  font-size: 10.5px;
+  flex-shrink: 0;
+  font-size: 10px;
   color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  transition: opacity 100ms ease;
 }
 .row-menu-wrap {
   position: absolute;
-  top: 7px; right: 6px;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
 }
 .row-menu {
   opacity: 0;

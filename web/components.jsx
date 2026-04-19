@@ -142,10 +142,12 @@ function SessionRow({ s, active, streaming, onClick, onRename, onDelete }) {
             spellCheck={false}
           />
         ) : (
-          <span className="title-text">{s.title || "Untitled"}</span>
+          <>
+            <span className="title-text">{s.title || "Untitled"}</span>
+            <span className="meta">{relLast}</span>
+          </>
         )}
       </div>
-      <div className="meta">{relLast}</div>
       {!editing && (
         <div className="row-menu-wrap" ref={wrapRef}>
           <button
