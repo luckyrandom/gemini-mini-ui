@@ -60,8 +60,25 @@ const api = {
 };
 
 function nowTime() {
-  const d = new Date();
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date().toISOString();
+}
+
+// "14:03" if today; "YYYY-MM-DD 14:03" otherwise.
+function formatTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const now = new Date();
+  const hhmm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) return hhmm;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day} ${hhmm}`;
 }
 
 function shortCwd(cwd) {
@@ -74,4 +91,4 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-Object.assign(window, { api, nowTime, shortCwd, uid });
+Object.assign(window, { api, nowTime, formatTime, shortCwd, uid });

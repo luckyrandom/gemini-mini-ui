@@ -131,18 +131,10 @@ function partsToText(content: unknown): string {
   return '';
 }
 
-function timeOf(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
-
 function normalizeMessages(records: MessageRecord[]): UiMessage[] {
   const out: UiMessage[] = [];
   for (const m of records) {
-    const t = timeOf(m.timestamp);
+    const t = m.timestamp;
     if (m.type === 'user') {
       out.push({ id: m.id, role: 'user', text: partsToText(m.content), time: t });
     } else if (m.type === 'gemini') {
@@ -153,7 +145,7 @@ function normalizeMessages(records: MessageRecord[]): UiMessage[] {
           name: tc.name,
           args: tc.args,
           result: tc.resultDisplay ?? tc.result ?? null,
-          time: timeOf(tc.timestamp),
+          time: tc.timestamp,
         });
       }
       const text = partsToText(m.content);

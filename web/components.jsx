@@ -178,12 +178,12 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew }
 function UserBubble({ m }) {
   return (
     <div className="msg user">
-      <div className="bubble">{m.text}</div>
       <div className="label">
         <span className="role">you</span>
         <span>·</span>
-        <span>{m.time}</span>
+        <span title={m.time}>{formatTime(m.time)}</span>
       </div>
+      <div className="bubble">{m.text}</div>
     </div>
   );
 }
@@ -195,7 +195,7 @@ function AssistantBubble({ m, streaming }) {
       <div className="label">
         <span className="role">assistant</span>
         <span>·</span>
-        <span>{m.time}</span>
+        <span title={m.time}>{formatTime(m.time)}</span>
         {streaming && <span style={{ color: "var(--accent)" }}>streaming…</span>}
       </div>
       <div className="bubble">
@@ -209,7 +209,7 @@ function AssistantBubble({ m, streaming }) {
       </div>
       {!streaming && text && (
         <div className="footer">
-          <button onClick={() => navigator.clipboard?.writeText(text)}><CopyIcon /> copy</button>
+          <button onClick={() => navigator.clipboard?.writeText(`[${formatTime(m.time)}] assistant\n\n${text}`)}><CopyIcon /> copy</button>
         </div>
       )}
     </div>
@@ -222,7 +222,7 @@ function ErrorBubble({ m }) {
       <div className="label">
         <span className="role" style={{ color: "var(--danger)" }}>assistant</span>
         <span>·</span>
-        <span>{m.time}</span>
+        <span title={m.time}>{formatTime(m.time)}</span>
       </div>
       <div className="bubble error">
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
