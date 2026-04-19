@@ -41,6 +41,12 @@
       assembly, any implicit file/context attachments, and whether the server
       default is injecting cwd contents.
 
+## UI improvement
+
+- [x] **Make the panel resizable.** Sidebar and debug drawer can be dragged by their
+      inner edges; widths persist in `localStorage` and restore on load; double-click
+      the handle resets to defaults.
+
 ## Improve the UI
 
 - [ ] This is confusing, becasue there is actually a tool call heppen in between. However, it is not desired to show the tool call bar in the chat message, as it may call many tools.
