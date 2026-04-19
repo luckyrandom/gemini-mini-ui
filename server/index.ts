@@ -318,6 +318,31 @@ function deleteSession(id: string, res: ServerResponse): void {
 }
 
 
+type ErrorKind = 'network' | 'model' | 'tool';
+
+function messageFromInlineError(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const v = value as { message?: unknown; error?: unknown };
+  if (typeof v.message === 'string') return v.message;
+  const inner = v.error;
+  if (typeof inner === 'string') return inner;
+  if (inner && typeof inner === 'object' && 'message' in inner) {
+    const m = (inner as { message?: unknown }).message;
+    if (typeof m === 'string') return m;
+  }
+  return '';
+}
+
+function classifyMessage(message: string): ErrorKind {
+  if (/\btool\b|scheduler|fatal tool|tool_call/i.test(message)) return 'tool';
+  return 'model';
+}
+
+function classifyThrown(err: unknown): ErrorKind {
+  const message = err instanceof Error ? err.message : String(err);
+  return classifyMessage(message);
+}
+
 async function streamSession(
   id: string,
   req: IncomingMessage,
@@ -370,14 +395,23 @@ async function streamSession(
     res.write(JSON.stringify(evt) + '\n');
   };
 
+  const writeTypedError = (kind: ErrorKind, message: string): void => {
+    write({ type: 'error', value: { kind, message: message || 'Unknown error' } });
+  };
+
   try {
     for await (const evt of liveSession.sendStream(text, abort.signal)) {
-      write(evt);
+      if ((evt as { type?: unknown }).type === 'error') {
+        const raw = messageFromInlineError((evt as { value?: unknown }).value);
+        writeTypedError(classifyMessage(raw), raw);
+      } else {
+        write(evt);
+      }
     }
     write({ type: 'done' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    write({ type: 'error', value: { message } });
+    writeTypedError(classifyThrown(err), message);
   } finally {
     slot.abort = undefined;
     res.end();
