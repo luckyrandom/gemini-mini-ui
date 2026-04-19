@@ -48,3 +48,21 @@ export function newSession(cwd: string, sessionId?: string): GeminiCliSession {
   const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd });
   return agent.session(sessionId ? { sessionId } : undefined);
 }
+
+/**
+ * Rehydrate a session by id. If on-disk chat history exists, the SDK's
+ * `resumeSession` replays it; otherwise we fall back to a fresh session bound
+ * to the same id so the first message still writes under the expected file.
+ */
+export async function resumeSession(cwd: string, sessionId: string): Promise<GeminiCliSession> {
+  if (process.env['GEMINI_MINI_UI_FAKE'] === '1') {
+    return makeFakeSession(cwd, sessionId);
+  }
+  ensureAuthResolved();
+  const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd });
+  try {
+    return await agent.resumeSession(sessionId);
+  } catch {
+    return agent.session({ sessionId });
+  }
+}

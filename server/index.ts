@@ -13,8 +13,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { homedir, platform } from 'node:os';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
 
 import {
   Storage,
@@ -23,7 +25,7 @@ import {
 } from '@google/gemini-cli-core';
 
 import type { GeminiCliSession } from './vendor/gemini-cli-sdk/index.js';
-import { newSession } from './sdk.js';
+import { resumeSession } from './sdk.js';
 
 type SessionRecord = {
   id: string;
@@ -35,13 +37,64 @@ type SessionRecord = {
 
 type SessionSlot = {
   record: SessionRecord;
-  session: GeminiCliSession;
+  session?: GeminiCliSession;
   abort?: AbortController;
 };
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 const WEB_ROOT = resolve(process.cwd(), 'web');
 const sessions = new Map<string, SessionSlot>();
+
+function defaultDataDir(): string {
+  const override = process.env['GEMINI_MINI_UI_DATA_DIR'];
+  if (override) return override;
+  if (platform() === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'gemini-mini-ui');
+  }
+  const xdg = process.env['XDG_DATA_HOME'];
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), '.local', 'share');
+  return join(base, 'gemini-mini-ui');
+}
+
+const INDEX_PATH = join(defaultDataDir(), 'sessions.json');
+const INDEX_VERSION = 1;
+
+let writeChain: Promise<void> = Promise.resolve();
+function saveIndex(): Promise<void> {
+  const snapshot = [...sessions.values()].map((s) => s.record);
+  writeChain = writeChain.then(async () => {
+    const payload = JSON.stringify({ version: INDEX_VERSION, sessions: snapshot }, null, 2);
+    await mkdir(dirname(INDEX_PATH), { recursive: true });
+    const tmp = `${INDEX_PATH}.tmp`;
+    await writeFile(tmp, payload, 'utf8');
+    await rename(tmp, INDEX_PATH);
+  }).catch((err) => {
+    console.warn('[index] save failed', err);
+  });
+  return writeChain;
+}
+
+async function loadIndex(): Promise<void> {
+  try {
+    const raw = await readFile(INDEX_PATH, 'utf8');
+    const parsed = JSON.parse(raw) as { version?: number; sessions?: SessionRecord[] };
+    for (const rec of parsed.sessions ?? []) {
+      if (!rec.id || !rec.cwd) continue;
+      sessions.set(rec.id, { record: rec });
+    }
+    console.log(`[index] loaded ${sessions.size} session(s) from ${INDEX_PATH}`);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') console.warn('[index] load failed', err);
+  }
+}
+
+async function ensureLiveSession(slot: SessionSlot): Promise<GeminiCliSession> {
+  if (slot.session) return slot.session;
+  const { cwd, id } = slot.record;
+  slot.session = await resumeSession(cwd, id);
+  return slot.session;
+}
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -195,16 +248,16 @@ async function createSession(req: IncomingMessage, res: ServerResponse): Promise
   const body = (await readJson(req)) as { cwd?: string; title?: string };
   const cwd = body.cwd ? resolve(body.cwd) : process.cwd();
   const id = randomUUID();
-  const session = newSession(cwd, id);
   const now = new Date().toISOString();
   const record: SessionRecord = {
-    id: session.id,
+    id,
     cwd,
     title: body.title?.trim() || 'Untitled',
     createdAt: now,
     lastUsedAt: now,
   };
-  sessions.set(record.id, { record, session });
+  sessions.set(record.id, { record });
+  void saveIndex();
   sendJson(res, 201, record);
 }
 
@@ -229,10 +282,20 @@ async function streamSession(
     return;
   }
 
+  let liveSession: GeminiCliSession;
+  try {
+    liveSession = await ensureLiveSession(slot);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, 500, { error: `failed to resume session: ${message}` });
+    return;
+  }
+
   if (slot.record.title === 'Untitled') {
     slot.record.title = titleFromText(text, 'Untitled');
   }
   slot.record.lastUsedAt = new Date().toISOString();
+  void saveIndex();
 
   const abort = new AbortController();
   slot.abort = abort;
@@ -251,7 +314,7 @@ async function streamSession(
   };
 
   try {
-    for await (const evt of slot.session.sendStream(text, abort.signal)) {
+    for await (const evt of liveSession.sendStream(text, abort.signal)) {
       write(evt);
     }
     write({ type: 'done' });
@@ -300,6 +363,8 @@ const server = createServer(async (req, res) => {
     else res.end();
   }
 });
+
+await loadIndex();
 
 server.listen(PORT, () => {
   console.log(`[server] http://localhost:${PORT}`);
