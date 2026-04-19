@@ -272,7 +272,9 @@ function ToolCallRow({ m, defaultOpen }) {
           </div>
           <div>
             <div className="sec-h">result</div>
-            <pre>{resultView}</pre>
+            {React.isValidElement(resultView) && resultView.type === FileDiffView
+              ? resultView
+              : <pre>{resultView}</pre>}
           </div>
         </div>
       )}
@@ -290,11 +292,72 @@ function renderResult(result) {
   if (typeof result === "object" && result && typeof result.error === "string") {
     return <span style={{ color: "var(--danger)" }}>{result.error}</span>;
   }
+  // write_file / replace tools: render the unified diff with a header.
+  if (typeof result === "object" && result && typeof result.fileDiff === "string") {
+    return <FileDiffView result={result} />;
+  }
   // resultDisplay may come as { text, ... } or a plain structured object
   if (typeof result === "object" && result && typeof result.text === "string" && Object.keys(result).length <= 2) {
     return result.text;
   }
   return highlight(safeStringify(result), "json");
+}
+
+function FileDiffView({ result }) {
+  const [raw, setRaw] = React.useState(false);
+  const lines = String(result.fileDiff).split("\n");
+  const path = result.filePath || result.fileName || "";
+  const stat = result.diffStat;
+  return (
+    <div className="file-diff">
+      <div className="fd-head">
+        <span className="fd-path">{path}</span>
+        {stat && (
+          <span className="fd-stat">
+            {result.isNewFile && <span className="fd-new">new</span>}
+            <span className="fd-add">+{stat.model_added_lines ?? 0}</span>
+            <span className="fd-del">−{stat.model_removed_lines ?? 0}</span>
+          </span>
+        )}
+        <div className="fd-toggle" role="tablist">
+          <button
+            type="button"
+            className={"fd-toggle-btn" + (!raw ? " active" : "")}
+            onClick={() => setRaw(false)}
+            role="tab"
+            aria-selected={!raw}
+          >diff</button>
+          <button
+            type="button"
+            className={"fd-toggle-btn" + (raw ? " active" : "")}
+            onClick={() => setRaw(true)}
+            role="tab"
+            aria-selected={raw}
+          >raw</button>
+        </div>
+      </div>
+      {raw ? (
+        <pre className="fd-raw">{highlight(safeStringify(result), "json")}</pre>
+      ) : (
+        <div className="fd-body">
+          {lines.map((line, i) => {
+            // Skip diff metadata lines (Index:, ===, ---, +++, @@) — noisy
+            if (
+              line.startsWith("Index:") ||
+              line.startsWith("===") ||
+              line.startsWith("--- ") ||
+              line.startsWith("+++ ") ||
+              line.startsWith("@@")
+            ) return null;
+            const cls = line.startsWith("+") ? "fd-line fd-add-line"
+              : line.startsWith("-") ? "fd-line fd-del-line"
+              : "fd-line";
+            return <div key={i} className={cls}>{line || "\u00A0"}</div>;
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function pickInlineArg(args) {

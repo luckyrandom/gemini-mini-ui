@@ -677,7 +677,10 @@ input, textarea { font: inherit; color: inherit; }
   padding: 1px 6px;
   border-radius: 3px;
 }
-.tool-call .tc-head .tool-name { color: var(--fg); font-weight: 500; }
+.tool-call .tc-head .tool-name { color: var(--fg); font-weight: 500; user-select: text; }
+.tool-call .tc-head .tok-key,
+.tool-call .tc-head .tok-pun,
+.tool-call .tc-head .tok-str { user-select: text; }
 .tool-call .tc-head .duration {
   margin-left: auto;
   font-size: 10.5px;
@@ -714,6 +717,76 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--fg);
   max-height: 180px;
   overflow-y: auto;
+}
+
+/* file diff result (write_file / replace) */
+.file-diff {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.file-diff .fd-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.file-diff .fd-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-diff .fd-stat { display: inline-flex; gap: 6px; font-size: 10.5px; }
+.file-diff .fd-new { color: var(--fg-dim); border: 1px solid var(--border); padding: 0 4px; border-radius: 3px; font-size: 9.5px; }
+.file-diff .fd-add { color: #4ade80; }
+.file-diff .fd-del { color: #f87171; }
+.file-diff .fd-body {
+  max-height: 280px;
+  overflow: auto;
+  padding: 4px 0;
+}
+.file-diff .fd-line {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg);
+}
+.file-diff .fd-add-line { background: rgba(74, 222, 128, 0.10); color: #86efac; }
+.file-diff .fd-del-line { background: rgba(248, 113, 113, 0.10); color: #fca5a5; }
+.file-diff .fd-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-elev-1);
+}
+.file-diff .fd-toggle-btn {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.file-diff .fd-toggle-btn + .fd-toggle-btn { border-left: 1px solid var(--border); }
+.file-diff .fd-toggle-btn:hover { color: var(--fg); }
+.file-diff .fd-toggle-btn.active { background: var(--bg-elev-2); color: var(--fg); }
+.file-diff .fd-raw {
+  margin: 0;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
 }
 
 /* retry inline */
