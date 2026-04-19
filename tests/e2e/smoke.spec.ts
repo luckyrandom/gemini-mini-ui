@@ -26,6 +26,32 @@ test('chat round-trip: send a message and stream a fake response', async ({ page
   await expect(page.locator('.send-btn.stop')).toHaveCount(0);
 });
 
+test('stream error: typed system bubble appears with a Retry button', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+
+  // fake-session.ts maps "simulate-error:model" to a stream-level error.
+  await textarea.fill('simulate-error:model quota exhausted');
+  await textarea.press('Enter');
+
+  const errBubble = page.locator('.msg.system[data-error-kind="model"]');
+  await expect(errBubble).toBeVisible({ timeout: 5_000 });
+  await expect(errBubble.locator('.err-kind')).toHaveText('Model error');
+  await expect(errBubble.locator('.err-body')).toContainText('quota exhausted');
+
+  const retry = errBubble.locator('.retry-btn');
+  await expect(retry).toBeVisible();
+
+  // Retry re-sends the same prompt; since the fake session still yields an
+  // error, a fresh system bubble should replace the prior one (same prompt,
+  // no duplicate user bubble).
+  await retry.click();
+  await expect(page.locator('.msg.user')).toHaveCount(1);
+  await expect(page.locator('.msg.system[data-error-kind="model"]')).toHaveCount(1);
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 
