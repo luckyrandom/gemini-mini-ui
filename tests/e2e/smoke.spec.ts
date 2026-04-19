@@ -101,6 +101,51 @@ test('stream error: typed system bubble appears with a Retry button', async ({ p
   await expect(page.locator('.msg.system[data-error-kind="model"]')).toHaveCount(1);
 });
 
+test('approval modal: allow lets the tool call complete', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+  await textarea.fill('write a new file for me');
+  await textarea.press('Enter');
+
+  // The modal should pop up before any tool result renders.
+  const modal = page.locator('.approval-card');
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+  await expect(modal).toContainText('write_file');
+
+  // The tool card should be in the "awaiting approval" state.
+  const toolCard = page.locator('.tool-call').first();
+  await expect(toolCard.locator('.awaiting')).toBeVisible();
+
+  await modal.locator('.approval-btn.primary').click();
+
+  // Modal closes and the tool call now has a result.
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator('.msg.assistant .bubble')).toContainText('Done writing.', {
+    timeout: 5_000,
+  });
+});
+
+test('approval modal: cancel returns an error to the stream', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+  await textarea.fill('please edit notes.txt');
+  await textarea.press('Enter');
+
+  const modal = page.locator('.approval-card');
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator('.msg.assistant .bubble')).toContainText('Cancelled by user.', {
+    timeout: 5_000,
+  });
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 
