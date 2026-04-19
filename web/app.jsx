@@ -15,6 +15,7 @@ function App() {
   const [pickingDir, setPickingDir] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugBySid, setDebugBySid] = useState({});
+  const [requestRawBySid, setRequestRawBySid] = useState({});
   const [pendingApprovalsById, setPendingApprovalsById] = useState({});
 
   useEffect(() => {
@@ -86,6 +87,7 @@ function App() {
   const messages = (activeId && messagesById[activeId]) || [];
   const isStreaming = streamingId === activeId;
   const debugEvents = (activeId && debugBySid[activeId]) || [];
+  const requestRawSnapshots = (activeId && requestRawBySid[activeId]) || [];
 
   const DEBUG_EVENT_CAP = 500;
   const pushDebug = useCallback((sid, kind, data) => {
@@ -104,6 +106,21 @@ function App() {
       if (!(sid in prev)) return prev;
       const { [sid]: _gone, ...rest } = prev;
       return rest;
+    });
+    setRequestRawBySid((prev) => {
+      if (!(sid in prev)) return prev;
+      const { [sid]: _gone, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const REQUEST_RAW_CAP = 50;
+  const pushRequestRaw = useCallback((sid, snapshot) => {
+    if (!sid || !snapshot) return;
+    setRequestRawBySid((prev) => {
+      const list = prev[sid] ? [...prev[sid], snapshot] : [snapshot];
+      const trimmed = list.length > REQUEST_RAW_CAP ? list.slice(-REQUEST_RAW_CAP) : list;
+      return { ...prev, [sid]: trimmed };
     });
   }, []);
 
@@ -229,6 +246,9 @@ function App() {
             const { [sid]: _gone, ...rest } = prev;
             return rest;
           });
+        } else if (type === "debug_request_raw") {
+          pushRequestRaw(sid, evt.value);
+          pushDebug(sid, "request_raw", evt.value);
         } else if (type === "error") {
           const kind = evt.value?.kind || "model";
           const msg = evt.value?.message || evt.value?.error?.message || "Stream error";
@@ -604,6 +624,7 @@ function App() {
             <DebugDrawer
               open={debugOpen && !!activeId}
               events={debugEvents}
+              requestSnapshots={requestRawSnapshots}
               sessionId={activeId}
               onClose={() => setDebugOpen(false)}
               onClear={() => clearDebug(activeId)}

@@ -50,4 +50,9 @@
 
 ## Add latex rendering
 
-- [x] e.g. out put $$1 - \frac{1}{3} + \frac{1}{5} - \frac{1}{7} + \frac{1}{9} - \dots = \frac{\pi}{4}$$
+- [ ] e.g. out put $$1 - \frac{1}{3} + \frac{1}{5} - \frac{1}{7} + \frac{1}{9} - \dots = \frac{\pi}{4}$$
+
+## Add hotkey support
+
+- [ ] ⌘↵ to send is missing leading, enther to send
+- [ ] cmd + n for new session in the same dir, cmd + shift + n for new session with dir selector

@@ -172,6 +172,51 @@ test('math rendering: display and inline TeX render via KaTeX', async ({ page })
   await expect(inline.locator('.katex')).toBeVisible();
 });
 
+test('debug drawer: Request tab captures the snapshot sent upstream', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+
+  await textarea.fill('hello fake gemini');
+  await textarea.press('Enter');
+
+  await expect(page.locator('.msg.assistant .bubble')).toContainText(
+    'fake streaming response',
+    { timeout: 5_000 },
+  );
+  await expect(page.locator('.send-btn.stop')).toHaveCount(0);
+
+  await page.locator('button[aria-label="Toggle debug drawer"]').click();
+  const drawer = page.locator('.debug-drawer');
+  await expect(drawer).toBeVisible();
+
+  await drawer.locator('.dd-tab-btn', { hasText: 'Request' }).click();
+
+  // Turn picker should have at least one pill; latest selected by default.
+  const pills = drawer.locator('.dd-req-pill');
+  await expect(pills.first()).toBeVisible();
+  expect(await pills.count()).toBeGreaterThanOrEqual(1);
+
+  // Expand System → has text from the fake snapshot.
+  const sysSec = drawer.locator('.dd-req-sec', { hasText: 'System' }).first();
+  await sysSec.locator('.dd-req-sec-head').click();
+  await expect(sysSec).toHaveClass(/\bopen\b/);
+  await expect(sysSec.locator('.dd-req-pre')).not.toBeEmpty();
+
+  // Expand Transcript → the history is empty on first turn for the fake
+  // session, which should render the "(history is empty)" placeholder.
+  const txSec = drawer.locator('.dd-req-sec', { hasText: 'Transcript' }).first();
+  await txSec.locator('.dd-req-sec-head').click();
+  await expect(txSec).toHaveClass(/\bopen\b/);
+  await expect(txSec.locator('.dd-req-sec-body')).toBeVisible();
+
+  // Current prompt section is default-expanded and echoes the user prompt.
+  const promptSec = drawer.locator('.dd-req-sec', { hasText: 'Current prompt' }).first();
+  await expect(promptSec).toHaveClass(/\bopen\b/);
+  await expect(promptSec.locator('.dd-req-pre')).toContainText('hello fake gemini');
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 
