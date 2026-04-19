@@ -244,7 +244,12 @@ function ToolCallRow({ m, defaultOpen }) {
   const argsStr = safeStringify(m.args);
   const duration = m.duration && m.startedAt ? `${m.duration - m.startedAt}ms` : (m.result == null ? "…" : "");
   const inlineArg = pickInlineArg(m.args);
-  const resultView = renderResult(m.result);
+  const resultView = renderResult(m.result, m.name);
+  const usesOwnContainer = React.isValidElement(resultView) && (
+    resultView.type === FileDiffView ||
+    resultView.type === ShellResultView ||
+    resultView.type === CollapsibleText
+  );
 
   return (
     <div className="tool-call" data-open={open}>
@@ -272,9 +277,7 @@ function ToolCallRow({ m, defaultOpen }) {
           </div>
           <div>
             <div className="sec-h">result</div>
-            {React.isValidElement(resultView) && resultView.type === FileDiffView
-              ? resultView
-              : <pre>{resultView}</pre>}
+            {usesOwnContainer ? resultView : <pre>{resultView}</pre>}
           </div>
         </div>
       )}
@@ -286,9 +289,11 @@ function safeStringify(v) {
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 
-function renderResult(result) {
+const COLLAPSE_LINE_THRESHOLD = 30;
+
+function renderResult(result, toolName) {
   if (result == null) return "running…";
-  if (typeof result === "string") return result;
+  if (typeof result === "string") return renderStringResult(result, toolName);
   if (typeof result === "object" && result && typeof result.error === "string") {
     return <span style={{ color: "var(--danger)" }}>{result.error}</span>;
   }
@@ -298,9 +303,92 @@ function renderResult(result) {
   }
   // resultDisplay may come as { text, ... } or a plain structured object
   if (typeof result === "object" && result && typeof result.text === "string" && Object.keys(result).length <= 2) {
-    return result.text;
+    return renderStringResult(result.text, toolName);
   }
   return highlight(safeStringify(result), "json");
+}
+
+function renderStringResult(text, toolName) {
+  if (!text) return <span className="result-empty">(no output)</span>;
+  // run_shell_command results follow "Output: ...\nExit Code: N\n..."
+  if (toolName === "run_shell_command" && /(^|\n)(Output:|Exit Code:)/.test(text)) {
+    return <ShellResultView text={text} />;
+  }
+  const lines = text.split("\n");
+  if (lines.length > COLLAPSE_LINE_THRESHOLD) {
+    return <CollapsibleText text={text} lines={lines} />;
+  }
+  return text;
+}
+
+function ShellResultView({ text }) {
+  // Parse the loose key/value structure shell.js produces. Anything that
+  // doesn't match a known label gets folded into the previous section so we
+  // never lose data.
+  const sections = { output: "", error: "", exitCode: null, signal: null, extras: [] };
+  const lines = text.split("\n");
+  let cur = "output";
+  for (const line of lines) {
+    const m = line.match(/^(Output|Error|Exit Code|Signal|Background PIDs|Process Group PGID):\s?(.*)$/);
+    if (m) {
+      const [, label, val] = m;
+      if (label === "Output") { cur = "output"; sections.output = val; }
+      else if (label === "Error") { cur = "error"; sections.error = val; }
+      else if (label === "Exit Code") { cur = "exit"; sections.exitCode = val.trim(); }
+      else if (label === "Signal") { cur = "extras"; sections.signal = val.trim(); }
+      else { cur = "extras"; sections.extras.push(`${label}: ${val}`); }
+    } else {
+      if (cur === "output") sections.output += (sections.output ? "\n" : "") + line;
+      else if (cur === "error") sections.error += (sections.error ? "\n" : "") + line;
+      else sections.extras.push(line);
+    }
+  }
+  const exit = sections.exitCode;
+  const exitNum = exit != null ? Number(exit) : null;
+  const exitClass = exitNum === 0 ? "shell-exit ok" : (exitNum != null ? "shell-exit fail" : "shell-exit");
+  return (
+    <div className="shell-result">
+      <div className="shell-head">
+        <span className="shell-label">stdout</span>
+        {exit != null && <span className={exitClass}>exit {exit}</span>}
+        {sections.signal && <span className="shell-exit fail">signal {sections.signal}</span>}
+      </div>
+      <pre className="shell-body">{sections.output || <span className="result-empty">(no output)</span>}</pre>
+      {sections.error && (
+        <>
+          <div className="shell-head"><span className="shell-label err">stderr</span></div>
+          <pre className="shell-body err">{sections.error}</pre>
+        </>
+      )}
+      {sections.extras.length > 0 && (
+        <pre className="shell-extras">{sections.extras.join("\n")}</pre>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleText({ text, lines }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (expanded) {
+    return (
+      <div className="collapsible">
+        <pre className="collapsible-body">{text}</pre>
+        <button type="button" className="collapsible-toggle" onClick={() => setExpanded(false)}>
+          show less
+        </button>
+      </div>
+    );
+  }
+  const head = lines.slice(0, COLLAPSE_LINE_THRESHOLD).join("\n");
+  const remaining = lines.length - COLLAPSE_LINE_THRESHOLD;
+  return (
+    <div className="collapsible">
+      <pre className="collapsible-body">{head}</pre>
+      <button type="button" className="collapsible-toggle" onClick={() => setExpanded(true)}>
+        show all ({remaining} more line{remaining === 1 ? "" : "s"})
+      </button>
+    </div>
+  );
 }
 
 function FileDiffView({ result }) {

@@ -789,6 +789,103 @@ input, textarea { font: inherit; color: inherit; }
   overflow: auto;
 }
 
+.result-empty {
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+/* shell command result */
+.shell-result {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.shell-result .shell-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+}
+.shell-result .shell-head + .shell-body { border-top: 0; }
+.shell-result .shell-label {
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+.shell-result .shell-label.err { color: #f87171; }
+.shell-result .shell-exit {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--fg-dim);
+}
+.shell-result .shell-exit.ok { color: #4ade80; border-color: rgba(74, 222, 128, 0.4); }
+.shell-result .shell-exit.fail { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
+.shell-result .shell-body {
+  margin: 0;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--fg);
+}
+.shell-result .shell-body.err { color: #fca5a5; background: rgba(248, 113, 113, 0.06); }
+.shell-result .shell-extras {
+  margin: 0;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev-1);
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  white-space: pre-wrap;
+}
+
+/* collapsible long output */
+.collapsible {
+  display: flex;
+  flex-direction: column;
+}
+.collapsible .collapsible-body {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg);
+  max-height: none;
+}
+.collapsible .collapsible-toggle {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.collapsible .collapsible-toggle:hover { background: var(--bg-hover); color: var(--fg); }
+
 /* retry inline */
 .retry-btn {
   display: inline-flex; align-items: center; gap: 5px;
