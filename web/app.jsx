@@ -321,7 +321,15 @@ function App() {
             setChatFileById((prev) => ({ ...prev, [sid]: chatFile }));
           }
           if (chatFile && Array.isArray(persisted) && persisted.length > 0) {
-            setMessagesById((prev) => ({ ...prev, [sid]: persisted }));
+            setMessagesById((prev) => {
+              // Preserve client-synthesized system error bubbles — the server
+              // chat file doesn't record them, so a naive replace would wipe
+              // the only UI surface for quota/model/network failures.
+              const localErrors = (prev[sid] || []).filter(
+                (m) => m.role === "system" && m.error,
+              );
+              return { ...prev, [sid]: [...persisted, ...localErrors] };
+            });
           }
           if (pendingApprovals && pendingApprovals.length > 0) {
             setPendingApprovalsById((prev) => ({ ...prev, [sid]: pendingApprovals[0] }));
