@@ -172,6 +172,29 @@ export function makeFakeSession(cwd: string, sessionId?: string): GeminiCliSessi
         return;
       }
 
+      // Test hook: "long-md" emits a multi-section markdown reply so we can
+      // eyeball/assert that the assistant bubble styling is stable for long
+      // content (headings, lists, paragraphs, no code block).
+      if (/^long-md\b/i.test(prompt)) {
+        const parts = [
+          '# Overview\n\n',
+          'gemini-mini-ui operates as a thin shell around the Gemini CLI SDK.\n\n',
+          '## Components\n\n',
+          '- server: streams ServerGeminiStreamEvent batches to the client\n',
+          '- web: React app rendering bubbles, tools, and debug drawer\n',
+          '- tests: Playwright smoke suite exercising the fake session\n\n',
+          '## Notes\n\n',
+          'The UI keeps bubble styling **consistent** across live streaming and persisted reloads.\n',
+          'Headings, lists, and long paragraphs should all sit inside the same themed container.\n',
+        ];
+        for (const p of parts) {
+          if (signal?.aborted) return;
+          await delay(15);
+          yield { type: 'content', value: p };
+        }
+        return;
+      }
+
       if (isWriteIsh(prompt)) {
         const callId = randomUUID();
         yield { type: 'content', value: 'Proposing a write.\n\n' };

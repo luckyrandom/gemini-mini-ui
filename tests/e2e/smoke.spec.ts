@@ -254,12 +254,13 @@ test('tool group: consecutive tool calls collapse behind a pill', async ({ page 
     timeout: 5_000,
   });
 
-  // Three tool calls emitted, only the latest visible, pill offers to unfold.
+  // Three tool calls emitted, only the latest visible, an inline +N pill
+  // inside the head offers to unfold.
   const group = page.locator('.tool-group');
   await expect(group).toHaveCount(1);
   await expect(group.locator('.tool-call')).toHaveCount(1);
-  const pill = group.locator('.tool-group-toggle');
-  await expect(pill).toContainText('show 2 earlier tool calls');
+  const pill = group.locator('.tg-more');
+  await expect(pill).toHaveText('+2');
 
   // The visible one is the last call (step-3).
   await expect(group.locator('.tool-call').first()).toContainText('step-3');
