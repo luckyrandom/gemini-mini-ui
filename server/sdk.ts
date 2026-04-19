@@ -11,6 +11,7 @@ import {
   GeminiCliAgent,
   type GeminiCliSession,
 } from './vendor/gemini-cli-sdk/index.js';
+import { makeFakeSession } from './fake-session.js';
 
 let authResolved = false;
 
@@ -40,6 +41,9 @@ const INSTRUCTIONS =
   'You are a helpful assistant running inside gemini-mini-ui. Be concise.';
 
 export function newSession(cwd: string, sessionId?: string): GeminiCliSession {
+  if (process.env['GEMINI_MINI_UI_FAKE'] === '1') {
+    return makeFakeSession(cwd, sessionId);
+  }
   ensureAuthResolved();
   const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd });
   return agent.session(sessionId ? { sessionId } : undefined);
