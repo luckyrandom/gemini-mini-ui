@@ -131,6 +131,12 @@ const BugIcon = ({ size = 13 }) => (
     <path d="M9 6a3 3 0 0 1 6 0" />
   </svg>
 );
+const RetryIcon = ({ size = 11 }) => (
+  <svg {...iconProps(size)}>
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.5 15a9 9 0 1 1-2.12-9.36L23 10" />
+  </svg>
+);
 const SlidersIcon = ({ size = 13 }) => (
   <svg {...iconProps(size)}>
     <line x1="4" y1="6" x2="20" y2="6" />
@@ -146,5 +152,5 @@ Object.assign(window, {
   SidebarIcon, GearIcon, PanelRightIcon, SearchIcon, PlusIcon, MoreIcon,
   CopyIcon, RegenIcon, SendIcon, StopIcon, PaperclipIcon,
   ChevronRightIcon, ChevronDownIcon, ToolIcon, SparkleIcon, AlertIcon,
-  MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon,
+  MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon, RetryIcon,
 });

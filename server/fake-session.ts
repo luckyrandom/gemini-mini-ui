@@ -14,11 +14,29 @@ import type { GeminiCliSession } from './vendor/gemini-cli-sdk/index.js';
 type FakeEvent =
   | { type: 'content'; value: string }
   | { type: 'tool_call_request'; value: { callId: string; name: string; args: Record<string, unknown> } }
-  | { type: 'tool_call_response'; value: { callId: string; resultDisplay: string; error?: undefined } };
+  | { type: 'tool_call_response'; value: { callId: string; resultDisplay: string; error?: undefined } }
+  | { type: 'error'; value: { error: { message: string } } };
 
 function scriptFor(prompt: string): FakeEvent[] {
   const wantsTool = /\b(list|ls|files|dir)\b/i.test(prompt);
   const greeting = `You said: ${prompt}.\n\n`;
+  // Test hook: prompts starting with "simulate-error:" yield a stream-level
+  // error event so the client can exercise the typed-error bubble + retry.
+  //   simulate-error:model  → model-kind error
+  //   simulate-error:tool   → tool-kind error (message mentions "tool")
+  const err = prompt.match(/^simulate-error:(model|tool)\s*(.*)$/i);
+  if (err) {
+    const kind = err[1]!.toLowerCase();
+    const suffix = err[2]?.trim() ? ` (${err[2]!.trim()})` : '';
+    const message =
+      kind === 'tool'
+        ? `tool failed: read_file denied${suffix}`
+        : `model quota exhausted${suffix}`;
+    return [
+      { type: 'content', value: 'Thinking…' },
+      { type: 'error', value: { error: { message } } },
+    ];
+  }
   if (wantsTool) {
     const callId = randomUUID();
     return [

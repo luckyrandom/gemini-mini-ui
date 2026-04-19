@@ -301,20 +301,35 @@ function AssistantBubble({ m, streaming }) {
   );
 }
 
-function ErrorBubble({ m }) {
+function ErrorBubble({ m, onRetry }) {
+  const kind = m.errorKind || "model";
+  const label = errorKindLabel(kind);
+  const canRetry = typeof onRetry === "function" && m.retryText;
   return (
-    <div className="msg assistant">
+    <div className="msg system" data-error-kind={kind}>
       <div className="label">
-        <span className="role" style={{ color: "var(--danger)" }}>assistant</span>
+        <span className="role" style={{ color: "var(--danger)" }}>system</span>
         <span>·</span>
         <span title={m.time}>{formatTime(m.time)}</span>
       </div>
       <div className="bubble error">
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
           <span style={{ color: "var(--danger)", marginTop: 2 }}><AlertIcon size={13} /></span>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: "var(--danger)", fontWeight: 600, marginBottom: 2, fontSize: 12 }}>Stream error</div>
-            <div style={{ color: "var(--fg)", fontSize: 12.5 }}>{m.text}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="err-title">
+              <span className="err-kind">{label}</span>
+            </div>
+            <div className="err-body">{m.text || "Something went wrong."}</div>
+            {canRetry && (
+              <button
+                type="button"
+                className="retry-btn"
+                onClick={() => onRetry(m)}
+                title="Resend the last message"
+              >
+                <RetryIcon size={11} /> Retry
+              </button>
+            )}
           </div>
         </div>
       </div>

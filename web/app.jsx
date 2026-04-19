@@ -159,6 +159,24 @@ function App() {
       pendingTools.clear();
     };
 
+    // Replace the streaming assistant bubble with a typed system error
+    // bubble so the user sees a single terminal surface per failed turn.
+    const emitError = (kind, message) => {
+      setMessagesById((prev) => {
+        const list = (prev[sid] || []).filter((m) => m.id !== assistantId);
+        list.push({
+          id: uid(),
+          role: "system",
+          error: true,
+          errorKind: kind,
+          text: message,
+          retryText: text,
+          time: nowTime(),
+        });
+        return { ...prev, [sid]: list };
+      });
+    };
+
     try {
       await api.stream(sid, text, (evt) => {
         const type = evt.type;
@@ -200,9 +218,10 @@ function App() {
             updateMsg(sid, mid, { result, duration: Date.now() });
           }
         } else if (type === "error") {
+          const kind = evt.value?.kind || "model";
           const msg = evt.value?.message || evt.value?.error?.message || "Stream error";
-          pushDebug(sid, "stream_error", { message: msg, value: evt.value });
-          updateMsg(sid, assistantId, { streaming: false, error: true, text: (msg) });
+          pushDebug(sid, "stream_error", { kind, message: msg, value: evt.value });
+          emitError(kind, msg);
         } else if (type === "user_cancelled") {
           pushDebug(sid, "cancelled", { value: evt.value });
           updateMsg(sid, assistantId, { streaming: false, text: (/* keep what we have */ undefined) });
@@ -213,8 +232,9 @@ function App() {
         }
       });
     } catch (err) {
-      pushDebug(sid, "stream_exception", { message: err?.message || String(err) });
-      updateMsg(sid, assistantId, { streaming: false, error: true, text: err.message || String(err) });
+      const kind = err?.kind || "network";
+      pushDebug(sid, "stream_exception", { kind, message: err?.message || String(err) });
+      emitError(kind, err?.message || String(err));
     } finally {
       finalizePendingTools("incomplete");
       setStreamingId((cur) => (cur === sid ? null : cur));
@@ -233,6 +253,25 @@ function App() {
           .catch(() => {});
       }
     }
+  };
+
+  const handleRetry = (errMsg) => {
+    if (!activeId || isStreaming) return;
+    const text = errMsg?.retryText;
+    if (!text) return;
+    // Remove the error bubble and the preceding user bubble (which the retry
+    // will re-emit) so the log doesn't accumulate duplicates.
+    setMessagesById((prev) => {
+      const list = prev[activeId] || [];
+      const idx = list.findIndex((m) => m.id === errMsg.id);
+      if (idx < 0) return prev;
+      let start = idx;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (list[i].role === "user" && list[i].text === text) { start = i; break; }
+      }
+      return { ...prev, [activeId]: [...list.slice(0, start), ...list.slice(idx + 1)] };
+    });
+    handleSend(text);
   };
 
   const handleStop = async () => {
@@ -375,7 +414,7 @@ function App() {
             <div className="msg-log" ref={logRef}>
               {bootError && (
                 <div className="msg-group">
-                  <ErrorBubble m={{ text: `Server error: ${bootError}`, time: nowTime() }} />
+                  <ErrorBubble m={{ errorKind: "network", text: bootError, time: nowTime() }} />
                 </div>
               )}
               {!bootError && messages.length === 0 && (
@@ -388,10 +427,14 @@ function App() {
                 if (m.role === "tool") return (
                   <ToolCallRow key={m.id} m={m} defaultOpen={tweaks.toolCallExpanded} />
                 );
-                if (m.role === "assistant") {
-                  if (m.error) return (
-                    <div key={m.id} className="msg-group"><ErrorBubble m={m} /></div>
+                if (m.role === "system" || (m.role === "assistant" && m.error)) {
+                  return (
+                    <div key={m.id} className="msg-group">
+                      <ErrorBubble m={m} onRetry={handleRetry} />
+                    </div>
                   );
+                }
+                if (m.role === "assistant") {
                   return (
                     <div key={m.id} className="msg-group">
                       <AssistantBubble m={m} streaming={!!m.streaming} />
