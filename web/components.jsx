@@ -242,9 +242,9 @@ function ToolCallRow({ m, defaultOpen }) {
   React.useEffect(() => setOpen(defaultOpen), [defaultOpen]);
 
   const argsStr = safeStringify(m.args);
-  const resultStr = m.result == null ? "(pending…)" : safeStringify(m.result);
   const duration = m.duration && m.startedAt ? `${m.duration - m.startedAt}ms` : (m.result == null ? "…" : "");
   const inlineArg = pickInlineArg(m.args);
+  const resultView = renderResult(m.result);
 
   return (
     <div className="tool-call" data-open={open}>
@@ -272,7 +272,7 @@ function ToolCallRow({ m, defaultOpen }) {
           </div>
           <div>
             <div className="sec-h">result</div>
-            <pre>{m.result == null ? resultStr : highlight(resultStr, "json")}</pre>
+            <pre>{resultView}</pre>
           </div>
         </div>
       )}
@@ -282,6 +282,19 @@ function ToolCallRow({ m, defaultOpen }) {
 
 function safeStringify(v) {
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+}
+
+function renderResult(result) {
+  if (result == null) return "running…";
+  if (typeof result === "string") return result;
+  if (typeof result === "object" && result && typeof result.error === "string") {
+    return <span style={{ color: "var(--danger)" }}>{result.error}</span>;
+  }
+  // resultDisplay may come as { text, ... } or a plain structured object
+  if (typeof result === "object" && result && typeof result.text === "string" && Object.keys(result).length <= 2) {
+    return result.text;
+  }
+  return highlight(safeStringify(result), "json");
 }
 
 function pickInlineArg(args) {

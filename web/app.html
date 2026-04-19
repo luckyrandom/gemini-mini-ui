@@ -657,12 +657,11 @@ input, textarea { font: inherit; color: inherit; }
 
 .tool-call .tc-body {
   border-top: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
 }
 .tool-call .tc-body > div { padding: 8px 10px; }
-.tool-call .tc-body > div + div { border-left: 1px solid var(--border); }
+.tool-call .tc-body > div + div { border-top: 1px solid var(--border); }
 .tool-call .tc-body .sec-h {
   font-size: 9.5px;
   font-weight: 600;
@@ -959,7 +958,7 @@ input, textarea { font: inherit; color: inherit; }
       "theme": "dark",
       "sidebarCollapsed": false,
       "streaming": true,
-      "toolCallExpanded": true,
+      "toolCallExpanded": false,
       "errorVisible": false,
       "rightPaneOpen": false
     }/*EDITMODE-END*/;

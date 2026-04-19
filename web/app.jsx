@@ -85,12 +85,26 @@ function App() {
 
     setStreamingId(sid);
     const toolByCallId = new Map();
+    const pendingTools = new Set();
+
+    const finalizePendingTools = (reason) => {
+      if (pendingTools.size === 0) return;
+      const now = Date.now();
+      setMessagesById((prev) => {
+        const list = (prev[sid] || []).map((m) =>
+          pendingTools.has(m.id) && m.result == null
+            ? { ...m, result: { status: reason || "unknown" }, duration: now }
+            : m,
+        );
+        return { ...prev, [sid]: list };
+      });
+      pendingTools.clear();
+    };
 
     try {
       await api.stream(sid, text, (evt) => {
         const type = evt.type;
         if (type === "content") {
-          // append to assistant bubble
           setMessagesById((prev) => {
             const list = (prev[sid] || []).map((m) =>
               m.id === assistantId ? { ...m, text: (m.text || "") + (evt.value || "") } : m,
@@ -101,7 +115,7 @@ function App() {
           const v = evt.value || {};
           const toolMsgId = uid();
           toolByCallId.set(v.callId, toolMsgId);
-          // insert tool msg *before* current assistant bubble for readability
+          pendingTools.add(toolMsgId);
           setMessagesById((prev) => {
             const list = [...(prev[sid] || [])];
             const idx = list.findIndex((m) => m.id === assistantId);
@@ -118,10 +132,11 @@ function App() {
           const v = evt.value || {};
           const mid = toolByCallId.get(v.callId);
           if (mid) {
-            updateMsg(sid, mid, {
-              result: v.error ? { error: String(v.error) } : (v.responseParts ?? v.resultDisplay ?? { ok: true }),
-              duration: Date.now(),
-            });
+            pendingTools.delete(mid);
+            const result = v.error
+              ? { error: typeof v.error === "string" ? v.error : (v.error?.message || String(v.error)) }
+              : (v.resultDisplay ?? v.responseParts ?? { ok: true });
+            updateMsg(sid, mid, { result, duration: Date.now() });
           }
         } else if (type === "error") {
           const msg = evt.value?.message || evt.value?.error?.message || "Stream error";
@@ -133,6 +148,7 @@ function App() {
     } catch (err) {
       updateMsg(sid, assistantId, { streaming: false, error: true, text: err.message || String(err) });
     } finally {
+      finalizePendingTools("incomplete");
       setStreamingId((cur) => (cur === sid ? null : cur));
       setMessagesById((prev) => {
         const list = (prev[sid] || []).map((m) =>
