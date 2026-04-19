@@ -840,7 +840,6 @@ function Composer({ streaming, onSend, onStop, model, onModelChange }) {
                 {val.length.toLocaleString()} chars
               </span>
             )}
-            <span className="kbd">⌘</span><span className="kbd">↵</span> <span style={{ opacity: 0.7 }}>to send</span>
           </div>
           {streaming ? (
             <button className="send-btn stop" onClick={onStop} title="Stop generating">

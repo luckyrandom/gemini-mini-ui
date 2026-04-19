@@ -38,18 +38,23 @@ function App() {
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      const k = e.key.toLowerCase();
+      const k = (e.key || "").toLowerCase();
+      const isSlash = k === "/" || e.code === "Slash";
       if (k === "n") {
         e.preventDefault();
         if (e.shiftKey) setPickingDir(true);
         else newHereRef.current?.();
-      } else if (k === "/" && !e.shiftKey) {
+      } else if (isSlash && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPaletteOpen((v) => !v);
+      } else if (k === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
   const setTweak = (k, v) => {
