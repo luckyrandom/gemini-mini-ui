@@ -10,6 +10,7 @@
  *   POST   /api/sessions/:id/stream {text}            → NDJSON stream of SDK events
  *   POST   /api/sessions/:id/cancel                   → abort in-flight stream
  *   POST   /api/sessions/:id/fork {upToMessageId,title?} → branch history into a new session
+ *   POST   /api/sessions/:id/resend {model?}          → rewind + regenerate the last assistant turn
  *   GET    /api/ls?q=<path>                           → directory autocomplete
  *
  * Static files under web/ are served at /. One process, one port.
@@ -17,7 +18,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { homedir, platform } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
@@ -466,6 +467,120 @@ async function confirmSession(
   res.writeHead(204).end();
 }
 
+async function resendSession(
+  id: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const slot = sessions.get(id);
+  if (!slot) {
+    sendJson(res, 404, { error: 'session not found' });
+    return;
+  }
+  if (slot.abort) {
+    sendJson(res, 409, { error: 'stream already in flight' });
+    return;
+  }
+
+  const body = (await readJson(req)) as { model?: string | null };
+
+  const { record: conv, chatFile } = await loadConversationFor(
+    slot.record.cwd,
+    slot.record.id,
+  );
+  if (!conv || !chatFile) {
+    sendJson(res, 409, { error: 'no prior turn to resend' });
+    return;
+  }
+
+  let lastUserIdx = -1;
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    if (conv.messages[i]?.type === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx < 0) {
+    sendJson(res, 409, { error: 'no user turn to resend' });
+    return;
+  }
+  const lastUser = conv.messages[lastUserIdx]!;
+  const lastUserText = partsToText(lastUser.content);
+  if (!lastUserText.trim()) {
+    sendJson(res, 409, { error: 'last user message is empty' });
+    return;
+  }
+
+  // Rewind the persisted chat so the SDK resumes to a state ending at the
+  // turn *before* the last user message. The SDK's JSONL loader interprets
+  // `$rewindTo` by dropping that message and everything after it.
+  await appendFile(chatFile, JSON.stringify({ $rewindTo: lastUser.id }) + '\n');
+
+  if ('model' in body) {
+    const next = typeof body.model === 'string' ? body.model.trim() : '';
+    if (next) slot.record.model = next;
+    else delete slot.record.model;
+  }
+  // Force a fresh live session so the new model + rewound history take effect.
+  slot.session = undefined;
+
+  let liveSession: GeminiCliSession;
+  try {
+    liveSession = await ensureLiveSession(slot);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, 500, { error: `failed to resume session: ${message}` });
+    return;
+  }
+
+  slot.record.lastUsedAt = new Date().toISOString();
+  void saveIndex();
+
+  const abort = new AbortController();
+  slot.abort = abort;
+  req.on('close', () => {
+    if (!res.writableEnded) abort.abort();
+  });
+
+  res.writeHead(200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'cache-control': 'no-cache',
+    'x-accel-buffering': 'no',
+  });
+
+  const write = (evt: unknown): void => {
+    res.write(JSON.stringify(evt) + '\n');
+  };
+
+  const writeTypedError = (kind: ErrorKind, message: string): void => {
+    write({ type: 'error', value: { kind, message: message || 'Unknown error' } });
+  };
+
+  const bridge = new ApprovalBridge(liveSession.messageBus, (evt) => write(evt));
+  slot.bridge = bridge;
+
+  try {
+    for await (const evt of liveSession.sendStream(lastUserText, abort.signal)) {
+      if ((evt as { type?: unknown }).type === 'error') {
+        const raw = messageFromInlineError((evt as { value?: unknown }).value);
+        writeTypedError(classifyMessage(raw), raw);
+      } else {
+        write(evt);
+      }
+    }
+    write({ type: 'done' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    writeTypedError(classifyThrown(err), message);
+  } finally {
+    await bridge.cancelAllPending();
+    bridge.dispose();
+    slot.bridge = undefined;
+    slot.abort = undefined;
+    res.end();
+  }
+}
+
 function expandHome(p: string): string {
   if (p === '~' || p.startsWith('~/')) return join(homedir(), p.slice(1));
   return p;
@@ -591,7 +706,7 @@ const server = createServer(async (req, res) => {
     if (path === '/api/sessions' && req.method === 'POST') return createSession(req, res);
     if (path === '/api/ls' && req.method === 'GET') return listDirs(req, res);
 
-    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm|\/fork)?$/);
+    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm|\/fork|\/resend)?$/);
     if (m) {
       const id = m[1]!;
       const sub = m[2];
@@ -602,6 +717,7 @@ const server = createServer(async (req, res) => {
       if (sub === '/cancel' && req.method === 'POST') return cancelSession(id, res);
       if (sub === '/confirm' && req.method === 'POST') return confirmSession(id, req, res);
       if (sub === '/fork' && req.method === 'POST') return forkSession(id, req, res);
+      if (sub === '/resend' && req.method === 'POST') return resendSession(id, req, res);
     }
 
     sendJson(res, 404, { error: 'not found' });

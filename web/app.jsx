@@ -121,22 +121,7 @@ function App() {
     });
   };
 
-  const handleSend = async (text) => {
-    if (!activeId || isStreaming) return;
-    const sid = activeId;
-
-    pushMsg(sid, { id: uid(), role: "user", text, time: nowTime() });
-    const assistantId = uid();
-    pushMsg(sid, { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true });
-
-    const activeAtSend = sessions.find((s) => s.id === sid) || null;
-    pushDebug(sid, "request", {
-      sessionId: sid,
-      cwd: activeAtSend?.cwd,
-      model: activeAtSend?.model || "(server default)",
-      text,
-    });
-
+  const runTurn = async (sid, assistantId, text, startStream) => {
     setStreamingId(sid);
     setHydratedIds((prev) => {
       const next = new Set(prev);
@@ -183,7 +168,7 @@ function App() {
     const approvalToToolRow = new Map();
 
     try {
-      await api.stream(sid, text, (evt) => {
+      await startStream((evt) => {
         const type = evt.type;
         if (type === "content") {
           pushDebug(sid, "chunk", { value: evt.value });
@@ -276,7 +261,7 @@ function App() {
         );
         return { ...prev, [sid]: list };
       });
-      // refresh sessions list to pick up title/lastUsedAt bumps
+      // refresh sessions list to pick up title/lastUsedAt bumps + model changes
       api.list().then(setSessions).catch(() => {});
       // Pull the persisted history back so message ids match the chat file.
       // Without this, freshly-streamed messages carry client-only uids and
@@ -313,6 +298,71 @@ function App() {
       return { ...prev, [activeId]: [...list.slice(0, start), ...list.slice(idx + 1)] };
     });
     handleSend(text);
+  };
+
+  const handleSend = async (text) => {
+    if (!activeId || isStreaming) return;
+    const sid = activeId;
+
+    pushMsg(sid, { id: uid(), role: "user", text, time: nowTime() });
+    const assistantId = uid();
+    pushMsg(sid, { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true });
+
+    const activeAtSend = sessions.find((s) => s.id === sid) || null;
+    pushDebug(sid, "request", {
+      sessionId: sid,
+      cwd: activeAtSend?.cwd,
+      model: activeAtSend?.model || "(server default)",
+      text,
+    });
+
+    await runTurn(sid, assistantId, text, (onEvent) => api.stream(sid, text, onEvent));
+  };
+
+  const handleResend = async (model) => {
+    if (!activeId || isStreaming) return;
+    const sid = activeId;
+    const cur = messagesById[sid] || [];
+    let lastUserIdx = -1;
+    for (let i = cur.length - 1; i >= 0; i--) {
+      if (cur[i].role === "user") { lastUserIdx = i; break; }
+    }
+    if (lastUserIdx < 0) {
+      showToast("Nothing to regenerate");
+      return;
+    }
+    const lastUserText = cur[lastUserIdx]?.text || "";
+
+    const assistantId = uid();
+    const trimmed = cur.slice(0, lastUserIdx + 1);
+    setMessagesById((prev) => ({
+      ...prev,
+      [sid]: [
+        ...trimmed,
+        { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true },
+      ],
+    }));
+    // Optimistically reflect the model change in the session list.
+    if (model !== undefined) {
+      setSessions((list) =>
+        list.map((s) => (s.id === sid ? { ...s, model: model || undefined } : s)),
+      );
+    }
+
+    const activeAtResend = sessions.find((s) => s.id === sid) || null;
+    const resolvedModel = model !== undefined
+      ? (model || "(server default)")
+      : (activeAtResend?.model || "(server default)");
+    pushDebug(sid, "request", {
+      sessionId: sid,
+      cwd: activeAtResend?.cwd,
+      model: resolvedModel,
+      resend: true,
+    });
+
+    await runTurn(sid, assistantId, lastUserText, (onEvent) =>
+      api.resend(sid, { model }, onEvent),
+    );
   };
 
   const handleStop = async () => {
@@ -496,36 +546,50 @@ function App() {
               {!bootError && messages.length === 0 && (
                 <EmptyChat onPick={(t) => handleSend(t)} />
               )}
-              {messages.map((m, i) => {
-                if (m.role === "user") return (
-                  <div key={m.id} className="msg-group">
-                    <UserBubble m={m} onFork={handleFork} forkDisabled={isStreaming} />
-                  </div>
-                );
-                if (m.role === "tool") return (
-                  <ToolCallRow key={m.id} m={m} defaultOpen={tweaks.toolCallExpanded} />
-                );
-                if (m.role === "system" || (m.role === "assistant" && m.error)) {
-                  return (
+              {(() => {
+                let lastAssistantIdx = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  const m = messages[i];
+                  if (m.role === "assistant" && !m.error && !m.streaming) {
+                    lastAssistantIdx = i;
+                    break;
+                  }
+                }
+                return messages.map((m, i) => {
+                  if (m.role === "user") return (
                     <div key={m.id} className="msg-group">
-                      <ErrorBubble m={m} onRetry={handleRetry} />
+                      <UserBubble m={m} onFork={handleFork} forkDisabled={isStreaming} />
                     </div>
                   );
-                }
-                if (m.role === "assistant") {
-                  return (
-                    <div key={m.id} className="msg-group">
-                      <AssistantBubble
-                        m={m}
-                        streaming={!!m.streaming}
-                        onFork={handleFork}
-                        forkDisabled={isStreaming}
-                      />
-                    </div>
+                  if (m.role === "tool") return (
+                    <ToolCallRow key={m.id} m={m} defaultOpen={tweaks.toolCallExpanded} />
                   );
-                }
-                return null;
-              })}
+                  if (m.role === "system" || (m.role === "assistant" && m.error)) {
+                    return (
+                      <div key={m.id} className="msg-group">
+                        <ErrorBubble m={m} onRetry={handleRetry} />
+                      </div>
+                    );
+                  }
+                  if (m.role === "assistant") {
+                    const isLast = i === lastAssistantIdx;
+                    return (
+                      <div key={m.id} className="msg-group">
+                        <AssistantBubble
+                          m={m}
+                          streaming={!!m.streaming}
+                          onFork={handleFork}
+                          forkDisabled={isStreaming}
+                          onResend={isLast ? handleResend : undefined}
+                          resendDisabled={isStreaming}
+                          currentModel={activeSession?.model || ""}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                });
+              })()}
             </div>
             <div className={"jump-pill" + (showJump ? " show" : "")} onClick={jumpToLatest}>
               Jump to latest ↓

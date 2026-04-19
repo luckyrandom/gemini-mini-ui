@@ -74,50 +74,67 @@ const api = {
   },
 
   async stream(id, text, onEvent, signal) {
-    let r;
-    try {
-      r = await fetch(`/api/sessions/${encodeURIComponent(id)}/stream`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
-        signal,
-      });
-    } catch (err) {
-      // fetch() rejects for network-layer failures (DNS, offline, CORS,
-      // abort). Classify as "network" so the UI can differentiate.
-      if (err?.name === "AbortError") throw err;
-      throw streamError("network", err?.message || "Connection failed");
-    }
-    if (!r.ok) {
-      const body = await r.text().catch(() => "");
-      // Server reachable but rejected the request (409, 500, etc.). Still a
-      // transport-layer failure from the user's perspective.
-      throw streamError("network", `stream failed: ${r.status}${body ? ` ${body}` : ""}`);
-    }
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf("\n")) !== -1) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          try { onEvent(JSON.parse(line)); } catch (e) { console.warn("bad event", line, e); }
-        }
-      }
-    } catch (err) {
-      if (err?.name === "AbortError") throw err;
-      throw streamError("network", err?.message || "Connection dropped");
-    }
-    const last = buf.trim();
-    if (last) { try { onEvent(JSON.parse(last)); } catch {} }
+    const r = await safeFetch(`/api/sessions/${encodeURIComponent(id)}/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal,
+    }, "stream");
+    return consumeNdjson(r, onEvent, "stream");
+  },
+
+  async resend(id, { model } = {}, onEvent, signal) {
+    const r = await safeFetch(`/api/sessions/${encodeURIComponent(id)}/resend`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal,
+    }, "resend");
+    return consumeNdjson(r, onEvent, "resend");
   },
 };
+
+// fetch() rejects for network-layer failures (DNS, offline, CORS, abort).
+// Surface them as typed "network" errors so the UI can render a retry bubble.
+async function safeFetch(url, init, label) {
+  let r;
+  try {
+    r = await fetch(url, init);
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    throw streamError("network", err?.message || "Connection failed");
+  }
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw streamError("network", `${label} failed: ${r.status}${body ? ` ${body}` : ""}`);
+  }
+  return r;
+}
+
+async function consumeNdjson(r, onEvent, _label) {
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try { onEvent(JSON.parse(line)); } catch (e) { console.warn("bad event", line, e); }
+      }
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    throw streamError("network", err?.message || "Connection dropped");
+  }
+  const last = buf.trim();
+  if (last) { try { onEvent(JSON.parse(last)); } catch {} }
+}
 
 // Attach a kind so callers can render a typed error bubble.
 function streamError(kind, message) {
