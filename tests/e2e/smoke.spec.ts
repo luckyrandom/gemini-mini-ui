@@ -26,6 +26,55 @@ test('chat round-trip: send a message and stream a fake response', async ({ page
   await expect(page.locator('.send-btn.stop')).toHaveCount(0);
 });
 
+test('debug drawer: merged-chunk mode collapses chunk runs', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+
+  // Open the drawer before sending so it's up when events arrive.
+  await page.locator('button[aria-label="Toggle debug drawer"]').click();
+  const drawer = page.locator('.debug-drawer');
+  await expect(drawer).toBeVisible();
+
+  // Fake session emits two consecutive 'content' events for this prompt.
+  await textarea.fill('hello fake gemini');
+  await textarea.press('Enter');
+
+  // Wait for streaming to finish so the debug event list is complete.
+  await expect(page.locator('.msg.assistant .bubble')).toContainText(
+    'fake streaming response',
+    { timeout: 5_000 },
+  );
+  await expect(page.locator('.send-btn.stop')).toHaveCount(0);
+
+  const mergedBtn = drawer.locator('.dd-mode-btn', { hasText: 'Merged' });
+  const rawBtn = drawer.locator('.dd-mode-btn', { hasText: 'Raw' });
+
+  // Default: merged mode with a single chunk_group row and no raw chunk rows.
+  await expect(mergedBtn).toHaveClass(/\bactive\b/);
+  await expect(drawer.locator('.dd-event[data-kind="chunk_group"]')).toHaveCount(1);
+  await expect(drawer.locator('.dd-event[data-kind="chunk"]')).toHaveCount(0);
+
+  // Toggle to raw → multiple chunk rows, no chunk_group.
+  await rawBtn.click();
+  await expect(rawBtn).toHaveClass(/\bactive\b/);
+  const rawChunks = drawer.locator('.dd-event[data-kind="chunk"]');
+  await expect(rawChunks).toHaveCount(2);
+  await expect(drawer.locator('.dd-event[data-kind="chunk_group"]')).toHaveCount(0);
+
+  // Toggle back to merged and expand the group — body shows the full reply.
+  await mergedBtn.click();
+  const group = drawer.locator('.dd-event[data-kind="chunk_group"]');
+  await expect(group).toHaveCount(1);
+  await group.locator('.dd-evt-head').click();
+  await expect(group).toHaveAttribute('data-open', 'true');
+  const body = group.locator('.dd-evt-body');
+  await expect(body).toContainText('You said: hello fake gemini.');
+  await expect(body).toContainText('This is a fake streaming response for tests.');
+  await expect(body.locator('.dd-chunk-meta')).toContainText('2 chunks');
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 

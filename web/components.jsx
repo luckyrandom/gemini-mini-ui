@@ -759,6 +759,7 @@ function Composer({ streaming, onSend, onStop, model, onModelChange }) {
 const DEBUG_EVENT_LABELS = {
   request: "request",
   chunk: "chunk",
+  chunk_group: "chunks",
   tool_request: "tool →",
   tool_response: "tool ←",
   stream_error: "error",
@@ -766,6 +767,37 @@ const DEBUG_EVENT_LABELS = {
   cancelled: "cancelled",
   done: "done",
 };
+
+const CHUNK_GROUP_SUMMARY_CHARS = 140;
+
+function mergeChunkRuns(events) {
+  const out = [];
+  let run = null;
+  for (const evt of events) {
+    if (evt.kind === "chunk") {
+      const chunk = typeof evt.data?.value === "string"
+        ? evt.data.value
+        : String(evt.data?.value ?? "");
+      if (run) {
+        run.data.text += chunk;
+        run.data.chunkCount += 1;
+        run.data.lastAt = evt.at;
+      } else {
+        run = {
+          id: evt.id,
+          at: evt.at,
+          kind: "chunk_group",
+          data: { text: chunk, chunkCount: 1, firstAt: evt.at, lastAt: evt.at },
+        };
+      }
+    } else {
+      if (run) { out.push(run); run = null; }
+      out.push(evt);
+    }
+  }
+  if (run) out.push(run);
+  return out;
+}
 
 function summarizeDebugEvent(evt) {
   const d = evt.data || {};
@@ -777,6 +809,13 @@ function summarizeDebugEvent(evt) {
   if (evt.kind === "chunk") {
     const text = typeof d.value === "string" ? d.value : String(d.value ?? "");
     return JSON.stringify(text).slice(0, 160);
+  }
+  if (evt.kind === "chunk_group") {
+    const text = typeof d.text === "string" ? d.text : "";
+    const preview = text.slice(0, CHUNK_GROUP_SUMMARY_CHARS);
+    const ell = text.length > CHUNK_GROUP_SUMMARY_CHARS ? "…" : "";
+    const count = d.chunkCount || 0;
+    return `(${count} chunk${count === 1 ? "" : "s"}) ${JSON.stringify(preview)}${ell}`;
   }
   if (evt.kind === "tool_request") {
     const args = d.args ? safeStringify(d.args).replace(/\s+/g, " ").slice(0, 120) : "";
@@ -820,9 +859,34 @@ function DebugEventRow({ evt }) {
       </div>
       {open && (
         <div className="dd-evt-body">
-          <pre>{safeStringify(evt.data)}</pre>
+          {evt.kind === "chunk_group"
+            ? <ChunkGroupBody data={evt.data} />
+            : <pre>{safeStringify(evt.data)}</pre>}
         </div>
       )}
+    </div>
+  );
+}
+
+function ChunkGroupBody({ data }) {
+  const count = data?.chunkCount || 0;
+  const firstAt = data?.firstAt;
+  const lastAt = data?.lastAt;
+  const span = (firstAt != null && lastAt != null) ? Math.max(0, lastAt - firstAt) : null;
+  const text = typeof data?.text === "string" ? data.text : "";
+  return (
+    <div className="dd-chunk-group">
+      <div className="dd-chunk-meta">
+        <span>{count} chunk{count === 1 ? "" : "s"}</span>
+        {firstAt != null && lastAt != null && (
+          <>
+            <span>·</span>
+            <span>{formatDebugTime(firstAt)} → {formatDebugTime(lastAt)}</span>
+          </>
+        )}
+        {span != null && <><span>·</span><span>{span}ms</span></>}
+      </div>
+      <pre className="dd-chunk-text">{text}</pre>
     </div>
   );
 }
@@ -830,12 +894,19 @@ function DebugEventRow({ evt }) {
 function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
   const bodyRef = React.useRef(null);
   const [stick, setStick] = React.useState(true);
+  const [modeBySid, setModeBySid] = React.useState({});
+  const mode = (sessionId && modeBySid[sessionId]) || "merged";
+  const setMode = (next) => {
+    if (!sessionId) return;
+    setModeBySid((prev) => (prev[sessionId] === next ? prev : { ...prev, [sessionId]: next }));
+  };
+  const visibleEvents = mode === "merged" ? mergeChunkRuns(events) : events;
   React.useEffect(() => {
     if (!open || !stick) return;
     const el = bodyRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [open, stick, events]);
+  }, [open, stick, visibleEvents]);
   const onScroll = () => {
     const el = bodyRef.current;
     if (!el) return;
@@ -850,6 +921,24 @@ function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
         <span className="dd-title">Debug</span>
         <span className="dd-count">{count}</span>
         <div className="spacer" />
+        <div className="dd-mode" role="tablist" aria-label="Debug view mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "merged"}
+            className={"dd-mode-btn" + (mode === "merged" ? " active" : "")}
+            onClick={() => setMode("merged")}
+            title="Collapse consecutive chunks into one row"
+          >Merged</button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "raw"}
+            className={"dd-mode-btn" + (mode === "raw" ? " active" : "")}
+            onClick={() => setMode("raw")}
+            title="Show every raw event"
+          >Raw</button>
+        </div>
         <button
           type="button"
           className="dd-btn"
@@ -878,7 +967,7 @@ function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
             </div>
           </div>
         ) : (
-          events.map((evt) => <DebugEventRow key={evt.id} evt={evt} />)
+          visibleEvents.map((evt) => <DebugEventRow key={evt.id} evt={evt} />)
         )}
       </div>
     </aside>
