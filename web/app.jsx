@@ -13,6 +13,8 @@ function App() {
   const [streamingId, setStreamingId] = useState(null);
   const [bootError, setBootError] = useState(null);
   const [pickingDir, setPickingDir] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugBySid, setDebugBySid] = useState({});
 
   useEffect(() => {
     const handler = (e) => {
@@ -82,6 +84,27 @@ function App() {
   const activeSession = sessions.find((s) => s.id === activeId) || null;
   const messages = (activeId && messagesById[activeId]) || [];
   const isStreaming = streamingId === activeId;
+  const debugEvents = (activeId && debugBySid[activeId]) || [];
+
+  const DEBUG_EVENT_CAP = 500;
+  const pushDebug = useCallback((sid, kind, data) => {
+    if (!sid) return;
+    const evt = { id: uid(), at: Date.now(), kind, data };
+    setDebugBySid((prev) => {
+      const list = prev[sid] ? [...prev[sid], evt] : [evt];
+      const trimmed = list.length > DEBUG_EVENT_CAP ? list.slice(-DEBUG_EVENT_CAP) : list;
+      return { ...prev, [sid]: trimmed };
+    });
+  }, []);
+
+  const clearDebug = useCallback((sid) => {
+    if (!sid) return;
+    setDebugBySid((prev) => {
+      if (!(sid in prev)) return prev;
+      const { [sid]: _gone, ...rest } = prev;
+      return rest;
+    });
+  }, []);
 
   const pushMsg = (sid, m) => {
     setMessagesById((prev) => {
@@ -104,6 +127,14 @@ function App() {
     pushMsg(sid, { id: uid(), role: "user", text, time: nowTime() });
     const assistantId = uid();
     pushMsg(sid, { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true });
+
+    const activeAtSend = sessions.find((s) => s.id === sid) || null;
+    pushDebug(sid, "request", {
+      sessionId: sid,
+      cwd: activeAtSend?.cwd,
+      model: activeAtSend?.model || "(server default)",
+      text,
+    });
 
     setStreamingId(sid);
     setHydratedIds((prev) => {
@@ -132,6 +163,7 @@ function App() {
       await api.stream(sid, text, (evt) => {
         const type = evt.type;
         if (type === "content") {
+          pushDebug(sid, "chunk", { value: evt.value });
           setMessagesById((prev) => {
             const list = (prev[sid] || []).map((m) =>
               m.id === assistantId ? { ...m, text: (m.text || "") + (evt.value || "") } : m,
@@ -140,6 +172,7 @@ function App() {
           });
         } else if (type === "tool_call_request") {
           const v = evt.value || {};
+          pushDebug(sid, "tool_request", v);
           const toolMsgId = uid();
           toolByCallId.set(v.callId, toolMsgId);
           pendingTools.add(toolMsgId);
@@ -157,6 +190,7 @@ function App() {
           });
         } else if (type === "tool_call_response") {
           const v = evt.value || {};
+          pushDebug(sid, "tool_response", v);
           const mid = toolByCallId.get(v.callId);
           if (mid) {
             pendingTools.delete(mid);
@@ -167,12 +201,19 @@ function App() {
           }
         } else if (type === "error") {
           const msg = evt.value?.message || evt.value?.error?.message || "Stream error";
+          pushDebug(sid, "stream_error", { message: msg, value: evt.value });
           updateMsg(sid, assistantId, { streaming: false, error: true, text: (msg) });
         } else if (type === "user_cancelled") {
+          pushDebug(sid, "cancelled", { value: evt.value });
           updateMsg(sid, assistantId, { streaming: false, text: (/* keep what we have */ undefined) });
+        } else if (type === "done") {
+          pushDebug(sid, "done", {});
+        } else {
+          pushDebug(sid, type || "event", evt.value ?? evt);
         }
       });
     } catch (err) {
+      pushDebug(sid, "stream_exception", { message: err?.message || String(err) });
       updateMsg(sid, assistantId, { streaming: false, error: true, text: err.message || String(err) });
     } finally {
       finalizePendingTools("incomplete");
@@ -263,6 +304,7 @@ function App() {
       next.delete(id);
       return next;
     });
+    clearDebug(id);
     try {
       await api.remove(id);
     } catch (err) {
@@ -326,6 +368,9 @@ function App() {
               session={activeSession}
               chatFile={activeId ? chatFileById[activeId] : null}
               onToast={showToast}
+              debugOpen={debugOpen}
+              debugCount={debugEvents.length}
+              onToggleDebug={activeSession ? () => setDebugOpen((v) => !v) : undefined}
             />
             <div className="msg-log" ref={logRef}>
               {bootError && (
@@ -365,6 +410,13 @@ function App() {
               onStop={handleStop}
               model={activeSession?.model || ""}
               onModelChange={activeSession ? handleModelChange : undefined}
+            />
+            <DebugDrawer
+              open={debugOpen && !!activeId}
+              events={debugEvents}
+              sessionId={activeId}
+              onClose={() => setDebugOpen(false)}
+              onClear={() => clearDebug(activeId)}
             />
           </div>
 
