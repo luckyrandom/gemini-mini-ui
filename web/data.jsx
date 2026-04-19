@@ -14,23 +14,13 @@ const api = {
     return await r.json();
   },
 
-  async create({ cwd, title } = {}) {
+  async create({ cwd, title, model } = {}) {
     const r = await fetch("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cwd, title }),
+      body: JSON.stringify({ cwd, title, model }),
     });
     if (!r.ok) throw new Error(`create failed: ${r.status}`);
-    return await r.json();
-  },
-
-  async cancel(id) {
-    await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
-  },
-
-  async listDirs(q) {
-    const r = await fetch(`/api/ls?q=${encodeURIComponent(q || "")}`);
-    if (!r.ok) throw new Error(`ls failed: ${r.status}`);
     return await r.json();
   },
 
@@ -41,6 +31,16 @@ const api = {
       body: JSON.stringify(patch),
     });
     if (!r.ok) throw new Error(`update failed: ${r.status}`);
+    return await r.json();
+  },
+
+  async cancel(id) {
+    await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+  },
+
+  async listDirs(q) {
+    const r = await fetch(`/api/ls?q=${encodeURIComponent(q || "")}`);
+    if (!r.ok) throw new Error(`ls failed: ${r.status}`);
     return await r.json();
   },
 
@@ -112,4 +112,27 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-Object.assign(window, { api, nowTime, formatTime, shortCwd, uid });
+// Models exposed by the Gemini CLI core SDK. The empty-value option means
+// "server default" (currently PREVIEW_GEMINI_MODEL_AUTO).
+const MODELS = [
+  { value: "", short: "Auto", label: "Default (auto)" },
+  { value: "auto-gemini-3", short: "Auto 3", label: "Auto · Gemini 3 preview" },
+  { value: "auto-gemini-2.5", short: "Auto 2.5", label: "Auto · Gemini 2.5" },
+  { value: "gemini-3-pro-preview", short: "3 Pro", label: "Gemini 3 Pro (preview)" },
+  { value: "gemini-3-flash-preview", short: "3 Flash", label: "Gemini 3 Flash (preview)" },
+  { value: "gemini-2.5-pro", short: "2.5 Pro", label: "Gemini 2.5 Pro" },
+  { value: "gemini-2.5-flash", short: "2.5 Flash", label: "Gemini 2.5 Flash" },
+  { value: "gemini-2.5-flash-lite", short: "2.5 Flash Lite", label: "Gemini 2.5 Flash Lite" },
+];
+
+function modelLabel(value) {
+  const m = MODELS.find((m) => m.value === (value || ""));
+  return m ? m.label : value;
+}
+
+function modelShort(value) {
+  const m = MODELS.find((m) => m.value === (value || ""));
+  return m ? m.short : value;
+}
+
+Object.assign(window, { api, MODELS, modelLabel, modelShort, nowTime, formatTime, shortCwd, uid });

@@ -612,7 +612,61 @@ function ChatHeader({ session, chatFile, onToast }) {
   );
 }
 
-function Composer({ streaming, onSend, onStop }) {
+function ModelPicker({ value, onChange, disabled }) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  const current = value || "";
+  return (
+    <div className="model-picker" ref={wrapRef}>
+      <button
+        type="button"
+        className="model-btn"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        title={`Model: ${modelLabel(current)}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="model-btn-text">{modelShort(current)}</span>
+        <ChevronDownIcon size={10} />
+      </button>
+      {open && (
+        <div className="model-pop" role="listbox">
+          {MODELS.map((m) => {
+            const on = m.value === current;
+            return (
+              <button
+                type="button"
+                key={m.value || "__default"}
+                className={"model-opt" + (on ? " on" : "")}
+                role="option"
+                aria-selected={on}
+                onClick={() => { onChange?.(m.value); setOpen(false); }}
+              >
+                <span>{m.label}</span>
+                {on && (
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Composer({ streaming, onSend, onStop, model, onModelChange }) {
   const [val, setVal] = React.useState("");
   const ref = React.useRef(null);
   const autosize = () => {
@@ -644,6 +698,11 @@ function Composer({ streaming, onSend, onStop }) {
             <button className="icon-btn" disabled title="Attachments (coming soon)">
               <PaperclipIcon />
             </button>
+            <ModelPicker
+              value={model}
+              onChange={onModelChange}
+              disabled={streaming || !onModelChange}
+            />
           </div>
           <div className="hint">
             {val.length > 2000 && (
@@ -763,5 +822,5 @@ function DirPicker({ initial, recent, onCancel, onPick }) {
 Object.assign(window, {
   TopBar, Sidebar, SessionRow,
   UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
-  ChatHeader, Composer, ArtifactPane, DirPicker,
+  ChatHeader, Composer, ModelPicker, ArtifactPane, DirPicker,
 });

@@ -40,12 +40,12 @@ export function ensureAuthResolved(): string {
 const INSTRUCTIONS =
   'You are a helpful assistant running inside gemini-mini-ui. Be concise.';
 
-export function newSession(cwd: string, sessionId?: string): GeminiCliSession {
+export function newSession(cwd: string, sessionId?: string, model?: string): GeminiCliSession {
   if (process.env['GEMINI_MINI_UI_FAKE'] === '1') {
     return makeFakeSession(cwd, sessionId);
   }
   ensureAuthResolved();
-  const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd });
+  const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd, ...(model ? { model } : {}) });
   return agent.session(sessionId ? { sessionId } : undefined);
 }
 
@@ -54,12 +54,16 @@ export function newSession(cwd: string, sessionId?: string): GeminiCliSession {
  * `resumeSession` replays it; otherwise we fall back to a fresh session bound
  * to the same id so the first message still writes under the expected file.
  */
-export async function resumeSession(cwd: string, sessionId: string): Promise<GeminiCliSession> {
+export async function resumeSession(
+  cwd: string,
+  sessionId: string,
+  model?: string,
+): Promise<GeminiCliSession> {
   if (process.env['GEMINI_MINI_UI_FAKE'] === '1') {
     return makeFakeSession(cwd, sessionId);
   }
   ensureAuthResolved();
-  const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd });
+  const agent = new GeminiCliAgent({ instructions: INSTRUCTIONS, cwd, ...(model ? { model } : {}) });
   try {
     return await agent.resumeSession(sessionId);
   } catch {

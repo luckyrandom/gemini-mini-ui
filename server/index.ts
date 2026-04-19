@@ -2,14 +2,14 @@
  * gemini-mini-ui server — static web + REST/NDJSON API over the vendored SDK.
  *
  * Endpoints:
- *   GET    /api/sessions                     → list in-memory sessions
- *   POST   /api/sessions        {cwd,title?} → create
- *   GET    /api/sessions/:id                 → record + history loaded from disk
- *   PATCH  /api/sessions/:id    {title}      → rename session
- *   DELETE /api/sessions/:id                 → abort + remove session
- *   POST   /api/sessions/:id/stream {text}   → NDJSON stream of SDK events
- *   POST   /api/sessions/:id/cancel          → abort in-flight stream
- *   GET    /api/ls?q=<path>                  → directory autocomplete
+ *   GET    /api/sessions                              → list in-memory sessions
+ *   POST   /api/sessions        {cwd,title?,model?}   → create
+ *   GET    /api/sessions/:id                          → record + history loaded from disk
+ *   PATCH  /api/sessions/:id    {title?,model?}       → rename / change model
+ *   DELETE /api/sessions/:id                          → abort + remove session
+ *   POST   /api/sessions/:id/stream {text}            → NDJSON stream of SDK events
+ *   POST   /api/sessions/:id/cancel                   → abort in-flight stream
+ *   GET    /api/ls?q=<path>                           → directory autocomplete
  *
  * Static files under web/ are served at /. One process, one port.
  */
@@ -36,6 +36,7 @@ type SessionRecord = {
   title: string;
   createdAt: string;
   lastUsedAt: string;
+  model?: string;
 };
 
 type SessionSlot = {
@@ -94,8 +95,8 @@ async function loadIndex(): Promise<void> {
 
 async function ensureLiveSession(slot: SessionSlot): Promise<GeminiCliSession> {
   if (slot.session) return slot.session;
-  const { cwd, id } = slot.record;
-  slot.session = await resumeSession(cwd, id);
+  const { cwd, id, model } = slot.record;
+  slot.session = await resumeSession(cwd, id, model);
   return slot.session;
 }
 
@@ -251,7 +252,7 @@ function listSessions(res: ServerResponse): void {
 }
 
 async function createSession(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const body = (await readJson(req)) as { cwd?: string; title?: string };
+  const body = (await readJson(req)) as { cwd?: string; title?: string; model?: string };
   let cwd = process.cwd();
   if (body.cwd && body.cwd.trim()) {
     cwd = resolve(expandHome(body.cwd.trim()));
@@ -267,26 +268,43 @@ async function createSession(req: IncomingMessage, res: ServerResponse): Promise
   }
   const id = randomUUID();
   const now = new Date().toISOString();
+  const model = body.model?.trim();
   const record: SessionRecord = {
     id,
     cwd,
     title: body.title?.trim() || 'Untitled',
     createdAt: now,
     lastUsedAt: now,
+    ...(model ? { model } : {}),
   };
   sessions.set(record.id, { record });
   void saveIndex();
   sendJson(res, 201, record);
 }
 
-async function updateSession(id: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function updateSession(
+  id: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const slot = sessions.get(id);
   if (!slot) return sendJson(res, 404, { error: 'session not found' });
-  const body = (await readJson(req)) as { title?: string };
+  const body = (await readJson(req)) as { title?: string; model?: string | null };
+  let changed = false;
   if (typeof body.title === 'string') {
     slot.record.title = body.title.trim() || 'Untitled';
-    void saveIndex();
+    changed = true;
   }
+  if ('model' in body) {
+    if (slot.abort) return sendJson(res, 409, { error: 'stream in flight' });
+    const next = typeof body.model === 'string' ? body.model.trim() : '';
+    if (next) slot.record.model = next;
+    else delete slot.record.model;
+    // drop the live session so the next stream picks up the new model
+    slot.session = undefined;
+    changed = true;
+  }
+  if (changed) void saveIndex();
   sendJson(res, 200, slot.record);
 }
 
@@ -298,6 +316,7 @@ function deleteSession(id: string, res: ServerResponse): void {
   void saveIndex();
   res.writeHead(204).end();
 }
+
 
 async function streamSession(
   id: string,

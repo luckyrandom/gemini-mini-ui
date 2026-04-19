@@ -200,6 +200,21 @@ function App() {
     showToast("Stopped");
   };
 
+  const handleModelChange = async (model) => {
+    if (!activeId) return;
+    const prev = sessions;
+    setSessions((list) => list.map((s) => (s.id === activeId ? { ...s, model: model || undefined } : s)));
+    try {
+      const rec = await api.update(activeId, { model });
+      setSessions((list) => list.map((s) => (s.id === rec.id ? rec : s)));
+      showToast(`Model: ${modelLabel(rec.model)}`);
+    } catch (err) {
+      setSessions(prev);
+      showToast("Update failed");
+      console.error(err);
+    }
+  };
+
   const handleNewSession = () => setPickingDir(true);
 
   const createWithCwd = async (cwd) => {
@@ -348,6 +363,8 @@ function App() {
               streaming={isStreaming}
               onSend={handleSend}
               onStop={handleStop}
+              model={activeSession?.model || ""}
+              onModelChange={activeSession ? handleModelChange : undefined}
             />
           </div>
 
