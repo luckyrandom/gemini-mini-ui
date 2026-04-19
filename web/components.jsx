@@ -1507,7 +1507,6 @@ function ApprovalModal({ pending, onDecision }) {
   if (!pending) return null;
   const { toolName, args, details } = pending;
   const diff = details && details.type === 'edit' ? details : null;
-  const argsStr = safeStringify(args ?? {});
 
   const onKey = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
@@ -1515,34 +1514,39 @@ function ApprovalModal({ pending, onDecision }) {
   };
 
   return (
-    <div className="approval-backdrop" onKeyDown={onKey}>
-      <div className="approval-card" role="dialog" aria-label="Tool approval" aria-modal="true">
-        <div className="approval-head">
-          <span className="warn"><AlertIcon size={12} /></span>
-          <span>Approve tool call</span>
+    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '620px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
+      <div className="approval-head">
+        <span className="warn"><AlertIcon size={12} /></span>
+        <span>Approve tool call</span>
+      </div>
+      <div className="approval-body">
+        <div className="approval-tool">
+          <span>tool</span>
+          <span className="tool-name">{toolName}</span>
         </div>
-        <div className="approval-body">
-          <div className="approval-tool">
-            <span>tool</span>
-            <span className="tool-name">{toolName}</span>
+        {diff && (
+          <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
+        )}
+        {!diff && (
+          <div className="approval-args">
+            {Object.entries(args ?? {}).map(([k, v]) => (
+              <div key={k} className="approval-arg">
+                <div className="approval-arg-key">{k}</div>
+                <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
+              </div>
+            ))}
           </div>
-          {diff && (
-            <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
-          )}
-          {!diff && (
-            <pre className="approval-args">{argsStr}</pre>
-          )}
-          <div className="approval-note">
-            v1: every destructive call is prompted individually. Cancelling sends a tool
-            error back to the model; proceed runs it once.
-          </div>
+        )}
+        <div className="approval-note">
+          v1: every destructive call is prompted individually. Cancelling sends a tool
+          error back to the model; proceed runs it once.
         </div>
-        <div className="approval-foot">
-          <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
-          <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>
-            Allow
-          </button>
-        </div>
+      </div>
+      <div className="approval-foot">
+        <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
+        <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>
+          Allow
+        </button>
       </div>
     </div>
   );

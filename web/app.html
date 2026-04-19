@@ -1932,7 +1932,17 @@ input, textarea { font: inherit; color: inherit; }
 }
 .approval-tool .tool-name { color: var(--accent); font-weight: 600; }
 .approval-args {
-  max-height: 220px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 300px; overflow-y: auto;
+  margin: 0;
+}
+.approval-arg-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-bottom: 4px;
+}
+.approval-arg-val {
   margin: 0;
   padding: 8px 10px;
   background: var(--bg-elev-2);
@@ -1940,7 +1950,8 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: var(--r-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .approval-note {
   color: var(--fg-muted); font-size: 12px;

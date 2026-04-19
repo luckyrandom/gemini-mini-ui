@@ -95,10 +95,13 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const { messages: history, chatFile } = await api.get(activeId);
+        const { messages: history, chatFile, pendingApprovals } = await api.get(activeId);
         if (cancelled) return;
         setMessagesById((prev) => ({ ...prev, [activeId]: history || [] }));
         setChatFileById((prev) => ({ ...prev, [activeId]: chatFile || null }));
+        if (pendingApprovals && pendingApprovals.length > 0) {
+          setPendingApprovalsById((prev) => ({ ...prev, [activeId]: pendingApprovals[0] }));
+        }
         setHydratedIds((prev) => new Set(prev).add(activeId));
       } catch (err) {
         console.warn("load history failed", err);
@@ -313,12 +316,15 @@ function App() {
       // a chatFile + real messages (so the fake test session, which writes
       // nothing, keeps the client-side bubbles we just rendered).
       api.get(sid)
-        .then(({ messages: persisted, chatFile }) => {
+        .then(({ messages: persisted, chatFile, pendingApprovals }) => {
           if (chatFile) {
             setChatFileById((prev) => ({ ...prev, [sid]: chatFile }));
           }
           if (chatFile && Array.isArray(persisted) && persisted.length > 0) {
             setMessagesById((prev) => ({ ...prev, [sid]: persisted }));
+          }
+          if (pendingApprovals && pendingApprovals.length > 0) {
+            setPendingApprovalsById((prev) => ({ ...prev, [sid]: pendingApprovals[0] }));
           }
         })
         .catch(() => {});
@@ -675,6 +681,16 @@ function App() {
                   return null;
                 });
               })()}
+              {activeId && pendingApprovalsById[activeId] && (
+                <div className="msg-group">
+                  <div className="msg-bubble assistant" style={{ background: 'transparent', padding: 0, border: 'none' }}>
+                    <ApprovalModal
+                      pending={pendingApprovalsById[activeId]}
+                      onDecision={handleApproval}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className={"jump-pill" + (showJump ? " show" : "")} onClick={jumpToLatest}>
               Jump to latest ↓
@@ -707,12 +723,6 @@ function App() {
           recent={recentDirs}
           onCancel={() => setPickingDir(false)}
           onPick={createWithCwd}
-        />
-      )}
-      {activeId && pendingApprovalsById[activeId] && (
-        <ApprovalModal
-          pending={pendingApprovalsById[activeId]}
-          onDecision={handleApproval}
         />
       )}
       {paletteOpen && (

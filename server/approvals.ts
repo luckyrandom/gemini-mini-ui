@@ -60,17 +60,27 @@ export class ApprovalBridge {
   private readonly seen = new Set<string>();
   private readonly listener: (msg: ToolCallsUpdateMessage) => void;
   private disposed = false;
+  private emit: (event: ApprovalEvent) => void;
 
   constructor(
     private readonly bus: ApprovalBus,
-    private readonly emit: (event: ApprovalEvent) => void,
+    emit: (event: ApprovalEvent) => void,
   ) {
+    this.emit = emit;
     this.listener = (msg) => this.onToolCallsUpdate(msg);
     this.bus.subscribe(MessageBusType.TOOL_CALLS_UPDATE, this.listener);
   }
 
+  setEmit(emit: (event: ApprovalEvent) => void): void {
+    this.emit = emit;
+  }
+
   hasPending(): boolean {
     return this.pending.size > 0;
+  }
+
+  getAllPending(): PendingApproval[] {
+    return Array.from(this.pending.values());
   }
 
   getPending(correlationId: string): PendingApproval | undefined {

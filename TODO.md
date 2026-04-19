@@ -56,3 +56,19 @@
 
 - [ ] ⌘↵ to send is missing leading, enther to send
 - [ ] cmd + n for new session in the same dir, cmd + shift + n for new session with dir selector
+
+## Back ground session
+
+- [ ] Is it supported?
+- [ ] What happens when it need attension? (approval?) Notify of done?
+
+## Surface the error. it is only available in the debug panel.
+
+{
+"kind": "model",
+"message": "You have exhausted your capacity on this model. Your quota will reset after 6h10m20s.",
+"value": {
+"kind": "model",
+"message": "You have exhausted your capacity on this model. Your quota will reset after 6h10m20s."
+}
+}

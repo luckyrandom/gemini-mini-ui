@@ -259,7 +259,8 @@ async function getSession(id: string, res: ServerResponse): Promise<void> {
   const slot = sessions.get(id);
   if (!slot) return sendJson(res, 404, { error: 'session not found' });
   const { messages, chatFile } = await loadHistory(slot.record.cwd, slot.record.id);
-  sendJson(res, 200, { record: slot.record, messages, chatFile });
+  const pendingApprovals = slot.bridge ? slot.bridge.getAllPending() : [];
+  sendJson(res, 200, { record: slot.record, messages, chatFile, pendingApprovals });
 }
 
 function listSessions(res: ServerResponse): void {
@@ -416,10 +417,14 @@ async function streamSession(
     write({ type: 'error', value: { kind, message: message || 'Unknown error' } });
   };
 
-  // Bridge core's per-call approval requests into synthetic NDJSON events
-  // so the browser can render a modal and post the user's decision back.
-  const bridge = new ApprovalBridge(liveSession.messageBus, (evt) => write(evt));
-  slot.bridge = bridge;
+  // Reuse existing bridge if available (persists through reloads)
+  let bridge = slot.bridge;
+  if (!bridge) {
+    bridge = new ApprovalBridge(liveSession.messageBus, (evt) => write(evt));
+    slot.bridge = bridge;
+  } else {
+    bridge.setEmit((evt) => write(evt));
+  }
 
   try {
     try {
@@ -441,9 +446,11 @@ async function streamSession(
     const message = err instanceof Error ? err.message : String(err);
     writeTypedError(classifyThrown(err), message);
   } finally {
-    await bridge.cancelAllPending();
-    bridge.dispose();
-    slot.bridge = undefined;
+    if (!bridge.hasPending()) {
+      await bridge.cancelAllPending();
+      bridge.dispose();
+      slot.bridge = undefined;
+    }
     slot.abort = undefined;
     res.end();
   }
