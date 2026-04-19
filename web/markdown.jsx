@@ -60,19 +60,37 @@ function highlight(code, lang) {
   );
 }
 
-// inline: bold/italic/code, render to React fragment
+function renderTeX(tex, displayMode) {
+  const k = window.katex;
+  if (!k) return { __html: (displayMode ? `$$${tex}$$` : `$${tex}$`).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])) };
+  try {
+    return { __html: k.renderToString(tex, { displayMode, throwOnError: false, output: "html" }) };
+  } catch (e) {
+    return { __html: `<span class="md-math-error">${String(e && e.message || e)}</span>` };
+  }
+}
+
+function MathInline({ tex }) {
+  return <span className="md-math-inline" dangerouslySetInnerHTML={renderTeX(tex, false)} />;
+}
+
+function MathDisplay({ tex }) {
+  return <div className="md-math-display" dangerouslySetInnerHTML={renderTeX(tex, true)} />;
+}
+
+// inline: bold/italic/code/math, render to React fragment
 function renderInline(text, keyPrefix = "") {
   const parts = [];
-  let rest = text;
   let idx = 0;
-  // one-pass: match **..**, *..*, `..`
-  const re = /(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)/g;
+  // one-pass: inline code wins first, then bold/italic, then $..$ math
+  const re = /(`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|\$([^$\n]+?)\$)/g;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2] !== undefined) parts.push(<strong key={`${keyPrefix}b${idx++}`}>{m[2]}</strong>);
-    else if (m[3] !== undefined) parts.push(<em key={`${keyPrefix}i${idx++}`}>{m[3]}</em>);
-    else if (m[4] !== undefined) parts.push(<code key={`${keyPrefix}c${idx++}`} className="inline">{m[4]}</code>);
+    if (m[2] !== undefined) parts.push(<code key={`${keyPrefix}c${idx++}`} className="inline">{m[2]}</code>);
+    else if (m[3] !== undefined) parts.push(<strong key={`${keyPrefix}b${idx++}`}>{m[3]}</strong>);
+    else if (m[4] !== undefined) parts.push(<em key={`${keyPrefix}i${idx++}`}>{m[4]}</em>);
+    else if (m[5] !== undefined) parts.push(<MathInline key={`${keyPrefix}m${idx++}`} tex={m[5]} />);
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -100,22 +118,37 @@ function CodeBlock({ lang, code }) {
 }
 
 function Markdown({ text, streaming = false }) {
-  // Split by fenced blocks
+  // Split by fenced blocks, then within each text run, split display math ($$..$$).
   const blocks = [];
   const re = /```(\w*)\n([\s\S]*?)```/g;
   let last = 0;
   let m;
+  const pushTextRun = (run) => {
+    const mathRe = /\$\$([\s\S]+?)\$\$/g;
+    let mLast = 0;
+    let mm;
+    while ((mm = mathRe.exec(run)) !== null) {
+      if (mm.index > mLast) blocks.push({ type: "text", value: run.slice(mLast, mm.index) });
+      blocks.push({ type: "math", value: mm[1] });
+      mLast = mm.index + mm[0].length;
+    }
+    if (mLast < run.length) blocks.push({ type: "text", value: run.slice(mLast) });
+  };
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) blocks.push({ type: "text", value: text.slice(last, m.index) });
+    if (m.index > last) pushTextRun(text.slice(last, m.index));
     blocks.push({ type: "code", lang: m[1], value: m[2] });
     last = m.index + m[0].length;
   }
-  if (last < text.length) blocks.push({ type: "text", value: text.slice(last) });
+  if (last < text.length) pushTextRun(text.slice(last));
 
   const out = [];
   blocks.forEach((b, bi) => {
     if (b.type === "code") {
       out.push(<CodeBlock key={`cb-${bi}`} lang={b.lang} code={b.value} />);
+      return;
+    }
+    if (b.type === "math") {
+      out.push(<MathDisplay key={`md-${bi}`} tex={b.value} />);
       return;
     }
     // render text block: paragraphs + lists
@@ -172,4 +205,4 @@ function Markdown({ text, streaming = false }) {
   return <div className="md">{out}</div>;
 }
 
-Object.assign(window, { Markdown, CodeBlock, highlight });
+Object.assign(window, { Markdown, CodeBlock, highlight, MathInline, MathDisplay });
