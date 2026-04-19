@@ -8,6 +8,7 @@ function App() {
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [messagesById, setMessagesById] = useState({});
+  const [chatFileById, setChatFileById] = useState({});
   const [hydratedIds, setHydratedIds] = useState(() => new Set());
   const [streamingId, setStreamingId] = useState(null);
   const [bootError, setBootError] = useState(null);
@@ -65,9 +66,10 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const { messages: history } = await api.get(activeId);
+        const { messages: history, chatFile } = await api.get(activeId);
         if (cancelled) return;
         setMessagesById((prev) => ({ ...prev, [activeId]: history || [] }));
+        setChatFileById((prev) => ({ ...prev, [activeId]: chatFile || null }));
         setHydratedIds((prev) => new Set(prev).add(activeId));
       } catch (err) {
         console.warn("load history failed", err);
@@ -182,6 +184,12 @@ function App() {
       });
       // refresh sessions list to pick up title/lastUsedAt bumps
       api.list().then(setSessions).catch(() => {});
+      // refresh chatFile for this session (created on first turn)
+      if (!chatFileById[sid]) {
+        api.get(sid)
+          .then(({ chatFile }) => setChatFileById((prev) => ({ ...prev, [sid]: chatFile || null })))
+          .catch(() => {});
+      }
     }
   };
 
@@ -250,7 +258,11 @@ function App() {
           />
 
           <div className="pane chat">
-            <ChatHeader session={activeSession} />
+            <ChatHeader
+              session={activeSession}
+              chatFile={activeId ? chatFileById[activeId] : null}
+              onToast={showToast}
+            />
             <div className="msg-log" ref={logRef}>
               {bootError && (
                 <div className="msg-group">

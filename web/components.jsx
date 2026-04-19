@@ -310,20 +310,67 @@ function pickInlineArg(args) {
   return null;
 }
 
-function ChatHeader({ session }) {
+function ChatHeader({ session, chatFile, onToast }) {
+  const [showInfo, setShowInfo] = React.useState(false);
+  const wrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!showInfo) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setShowInfo(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [showInfo]);
+
   if (!session) {
     return <div className="chat-header"><div className="h-title">No session</div></div>;
   }
   const created = new Date(session.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const copyPath = async () => {
+    if (!chatFile) return;
+    try {
+      await navigator.clipboard.writeText(chatFile);
+      onToast?.("Path copied");
+    } catch {
+      onToast?.("Copy failed");
+    }
+  };
   return (
     <div className="chat-header">
-      <div>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="h-title">{session.title || "Untitled"}</div>
         <div className="h-meta" style={{ marginTop: 2 }}>
           <span>{shortCwd(session.cwd)}</span>
           <span className="dot" />
           <span>created {created}</span>
         </div>
+      </div>
+      <div className="h-info-wrap" ref={wrapRef}>
+        <button
+          className="h-info-btn"
+          title="Session info"
+          aria-label="Session info"
+          onClick={() => setShowInfo((v) => !v)}
+        >
+          <InfoIcon size={14} />
+        </button>
+        {showInfo && (
+          <div className="h-info-pop" role="dialog">
+            <div className="h-info-label">Chat session file</div>
+            {chatFile ? (
+              <>
+                <div className="h-info-path" title={chatFile}>{chatFile}</div>
+                <button className="h-info-copy" onClick={copyPath}>
+                  <CopyIcon size={11} /> Copy path
+                </button>
+              </>
+            ) : (
+              <div className="h-info-empty">
+                No chat file yet — send a message to create one.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

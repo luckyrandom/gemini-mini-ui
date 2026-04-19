@@ -112,6 +112,13 @@ const XIcon = ({ size = 12 }) => (
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
+const InfoIcon = ({ size = 13 }) => (
+  <svg {...iconProps(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <line x1="12" y1="11" x2="12" y2="16" />
+    <circle cx="12" cy="8" r="0.5" fill="currentColor" />
+  </svg>
+);
 const SlidersIcon = ({ size = 13 }) => (
   <svg {...iconProps(size)}>
     <line x1="4" y1="6" x2="20" y2="6" />
@@ -127,5 +134,5 @@ Object.assign(window, {
   SidebarIcon, GearIcon, PanelRightIcon, SearchIcon, PlusIcon, MoreIcon,
   CopyIcon, RegenIcon, SendIcon, StopIcon, PaperclipIcon,
   ChevronRightIcon, ChevronDownIcon, ToolIcon, SparkleIcon, AlertIcon,
-  MessagesIcon, XIcon, SlidersIcon,
+  MessagesIcon, XIcon, SlidersIcon, InfoIcon,
 });

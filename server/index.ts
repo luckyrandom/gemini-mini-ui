@@ -210,7 +210,10 @@ function normalizeMessages(records: MessageRecord[]): UiMessage[] {
   return out;
 }
 
-async function loadHistory(cwd: string, sessionId: string): Promise<UiMessage[]> {
+async function loadHistory(
+  cwd: string,
+  sessionId: string,
+): Promise<{ messages: UiMessage[]; chatFile: string | null }> {
   try {
     const storage = new Storage(cwd);
     await storage.initialize();
@@ -222,20 +225,20 @@ async function loadHistory(cwd: string, sessionId: string): Promise<UiMessage[]>
       const abs = join(storage.getProjectTempDir(), f.filePath);
       const loaded = await loadConversationRecord(abs);
       if (loaded && loaded.sessionId === sessionId) {
-        return normalizeMessages(loaded.messages);
+        return { messages: normalizeMessages(loaded.messages), chatFile: abs };
       }
     }
   } catch (err) {
     console.warn('[history] load failed', err);
   }
-  return [];
+  return { messages: [], chatFile: null };
 }
 
 async function getSession(id: string, res: ServerResponse): Promise<void> {
   const slot = sessions.get(id);
   if (!slot) return sendJson(res, 404, { error: 'session not found' });
-  const messages = await loadHistory(slot.record.cwd, slot.record.id);
-  sendJson(res, 200, { record: slot.record, messages });
+  const { messages, chatFile } = await loadHistory(slot.record.cwd, slot.record.id);
+  sendJson(res, 200, { record: slot.record, messages, chatFile });
 }
 
 function listSessions(res: ServerResponse): void {
