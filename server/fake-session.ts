@@ -115,7 +115,7 @@ function isListIsh(prompt: string): boolean {
   return /\b(list|ls|files|dir)\b/i.test(prompt);
 }
 
-export function makeFakeSession(_cwd: string, sessionId?: string): GeminiCliSession {
+export function makeFakeSession(cwd: string, sessionId?: string): GeminiCliSession {
   const id = sessionId ?? randomUUID();
   const bus = new FakeBus();
 
@@ -128,6 +128,21 @@ export function makeFakeSession(_cwd: string, sessionId?: string): GeminiCliSess
     },
     async initialize() {
       /* no-op */
+    },
+    async getDebugSnapshot(prompt: string) {
+      // Static snapshot used only by tests — real sessions compute this from
+      // live core state. The hashes are obviously fake but consistent across
+      // turns so the "= same as #N" UI path can be exercised if we ever want.
+      const sys = 'You are a fake helpful assistant.';
+      const env = `(fake) cwd=${cwd}\ndate=${new Date().toISOString()}\n`;
+      return {
+        turnId: randomUUID(),
+        systemPrompt: { hash: 'fakesys000000', text: sys },
+        envContext: { hash: 'fakenv0000000', text: env },
+        userMemory: { hash: 'fakemem000000', text: '' },
+        transcript: { hash: 'faketx000000', turns: [] },
+        prompt: { text: prompt, bytes: Buffer.byteLength(prompt, 'utf8') },
+      };
     },
     async *sendStream(
       prompt: string,

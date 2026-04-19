@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { createHash, randomUUID } from 'node:crypto';
+
 import {
   type AgentLoopContext,
   Config,
@@ -29,9 +31,68 @@ import {
   EDIT_TOOL_NAME,
   SHELL_TOOL_NAME,
   type MessageBus,
+  getCoreSystemPrompt,
+  getEnvironmentContext,
 } from '@google/gemini-cli-core';
 
 import { type Tool, SdkTool } from './tool.js';
+
+export type DebugTranscriptTurn = {
+  role: string;
+  parts: unknown;
+  textPreview: string;
+  bytes: number;
+};
+
+export type DebugSnapshot = {
+  turnId: string;
+  systemPrompt: { hash: string; text: string };
+  envContext: { hash: string; text: string };
+  userMemory: { hash: string; text: string };
+  transcript: { hash: string; turns: DebugTranscriptTurn[] };
+  prompt: { text: string; bytes: number };
+};
+
+function shortHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 12);
+}
+
+function partsToPlainText(parts: unknown): string {
+  if (typeof parts === 'string') return parts;
+  if (!Array.isArray(parts)) return '';
+  const out: string[] = [];
+  for (const p of parts) {
+    if (typeof p === 'string') {
+      out.push(p);
+    } else if (p && typeof p === 'object') {
+      const obj = p as Record<string, unknown>;
+      if (typeof obj['text'] === 'string') out.push(obj['text'] as string);
+      else if (obj['functionCall']) {
+        const fc = obj['functionCall'] as { name?: string };
+        out.push(`[tool_call: ${fc?.name ?? 'unknown'}]`);
+      } else if (obj['functionResponse']) {
+        const fr = obj['functionResponse'] as { name?: string };
+        out.push(`[tool_result: ${fr?.name ?? 'unknown'}]`);
+      }
+    }
+  }
+  return out.join('');
+}
+
+function summarizeEnvParts(parts: unknown): string {
+  if (typeof parts === 'string') return parts;
+  if (!Array.isArray(parts)) return JSON.stringify(parts, null, 2);
+  const chunks: string[] = [];
+  for (const p of parts) {
+    if (typeof p === 'string') chunks.push(p);
+    else if (p && typeof p === 'object') {
+      const obj = p as Record<string, unknown>;
+      if (typeof obj['text'] === 'string') chunks.push(obj['text'] as string);
+      else chunks.push(JSON.stringify(obj, null, 2));
+    }
+  }
+  return chunks.join('\n\n');
+}
 import { SdkAgentFilesystem } from './fs.js';
 import { SdkAgentShell } from './shell.js';
 import type {
@@ -117,6 +178,71 @@ export class GeminiCliSession {
 
   get id(): string {
     return this.sessionId;
+  }
+
+  /**
+   * Build a snapshot of the inputs that the model sees for this turn:
+   * the assembled system prompt, auto-injected environment context, user
+   * memory, the current chat history sent upstream, and the prompt about
+   * to be appended. Used by the server to surface a "Request" view in the
+   * debug drawer — answers questions like "how does the model know what's
+   * in the cwd without a tool call" (the core SDK auto-injects a folder
+   * tree via getEnvironmentContext).
+   */
+  async getDebugSnapshot(prompt: string): Promise<DebugSnapshot> {
+    if (!this.initialized || !this.client) {
+      await this.initialize();
+    }
+    const client = this.client!;
+
+    const userMemoryRaw = this.config.getUserMemory();
+    const userMemoryText =
+      typeof userMemoryRaw === 'string'
+        ? userMemoryRaw
+        : JSON.stringify(userMemoryRaw, null, 2);
+
+    const systemPromptText = getCoreSystemPrompt(this.config, userMemoryRaw);
+
+    let envContextText = '';
+    try {
+      const envParts = await getEnvironmentContext(this.config);
+      envContextText = summarizeEnvParts(envParts);
+    } catch (err) {
+      envContextText = `(failed to compute envContext: ${
+        err instanceof Error ? err.message : String(err)
+      })`;
+    }
+
+    const history: readonly Content[] = client.getHistory();
+    const turns: DebugTranscriptTurn[] = history.map((turn) => {
+      const role = turn.role ?? 'unknown';
+      const parts = turn.parts ?? [];
+      const text = partsToPlainText(parts);
+      const preview = text.slice(0, 120);
+      const bytes = Buffer.byteLength(JSON.stringify(parts), 'utf8');
+      return { role, parts, textPreview: preview, bytes };
+    });
+    const transcriptHash = shortHash(
+      JSON.stringify(turns.map((t) => ({ role: t.role, parts: t.parts }))),
+    );
+
+    return {
+      turnId: randomUUID(),
+      systemPrompt: {
+        hash: shortHash(systemPromptText),
+        text: systemPromptText,
+      },
+      envContext: {
+        hash: shortHash(envContextText),
+        text: envContextText,
+      },
+      userMemory: {
+        hash: shortHash(userMemoryText),
+        text: userMemoryText,
+      },
+      transcript: { hash: transcriptHash, turns },
+      prompt: { text: prompt, bytes: Buffer.byteLength(prompt, 'utf8') },
+    };
   }
 
   /**

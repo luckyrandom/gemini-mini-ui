@@ -422,6 +422,12 @@ async function streamSession(
   slot.bridge = bridge;
 
   try {
+    try {
+      const snap = await liveSession.getDebugSnapshot(text);
+      write({ type: 'debug_request_raw', value: snap });
+    } catch (err) {
+      console.warn('[debug-raw] snapshot failed', err);
+    }
     for await (const evt of liveSession.sendStream(text, abort.signal)) {
       if ((evt as { type?: unknown }).type === 'error') {
         const raw = messageFromInlineError((evt as { value?: unknown }).value);
@@ -560,6 +566,12 @@ async function resendSession(
   slot.bridge = bridge;
 
   try {
+    try {
+      const snap = await liveSession.getDebugSnapshot(lastUserText);
+      write({ type: 'debug_request_raw', value: snap });
+    } catch (err) {
+      console.warn('[debug-raw] snapshot failed', err);
+    }
     for await (const evt of liveSession.sendStream(lastUserText, abort.signal)) {
       if ((evt as { type?: unknown }).type === 'error') {
         const raw = messageFromInlineError((evt as { value?: unknown }).value);
