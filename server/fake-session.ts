@@ -221,6 +221,28 @@ export function makeFakeSession(cwd: string, sessionId?: string): GeminiCliSessi
         return;
       }
 
+      // Test hook: prompts starting with "many-tools" emit a run of
+      // consecutive tool calls so the client-side ToolGroup collapse
+      // behavior can be exercised in tests.
+      if (/^many-tools\b/i.test(prompt)) {
+        yield { type: 'content', value: 'Running a few things.\n\n' };
+        for (let n = 1; n <= 3; n++) {
+          const callId = randomUUID();
+          await delay(10);
+          yield {
+            type: 'tool_call_request',
+            value: { callId, name: 'list_directory', args: { path: `step-${n}` } },
+          };
+          await delay(10);
+          yield {
+            type: 'tool_call_response',
+            value: { callId, resultDisplay: `entry-${n}.txt\n` },
+          };
+        }
+        yield { type: 'content', value: 'All done.' };
+        return;
+      }
+
       if (isListIsh(prompt)) {
         const callId = randomUUID();
         yield { type: 'content', value: 'Let me check.\n\n' };

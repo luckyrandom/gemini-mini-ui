@@ -710,6 +710,32 @@ input, textarea { font: inherit; color: inherit; }
   100% { background-position: 150% 0; }
 }
 
+/* tool-group: collapsible run of consecutive tool calls */
+.tool-group {
+  max-width: 820px;
+  margin: 0 auto 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tool-group .tool-call { margin: 0; }
+.tool-group-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.tool-group-toggle:hover { color: var(--fg-muted); border-style: solid; }
+.tool-group-hint { color: var(--fg-dim); margin-left: 4px; }
+
 /* tool-call row */
 .tool-call {
   max-width: 820px;
