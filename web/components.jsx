@@ -1537,10 +1537,6 @@ function ApprovalModal({ pending, onDecision }) {
             ))}
           </div>
         )}
-        <div className="approval-note">
-          v1: every destructive call is prompted individually. Cancelling sends a tool
-          error back to the model; proceed runs it once.
-        </div>
       </div>
       <div className="approval-foot">
         <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
