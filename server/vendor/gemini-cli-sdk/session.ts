@@ -263,6 +263,17 @@ export class GeminiCliSession {
         },
       );
 
+      // Surface each completed tool call to the consumer so it can render a
+      // result alongside the earlier ToolCallRequest. Core does not emit these
+      // itself — the scheduler hands them back out-of-band — so this bridge
+      // is the only place they can be yielded.
+      for (const call of completedCalls) {
+        yield {
+          type: GeminiEventType.ToolCallResponse,
+          value: call.response,
+        };
+      }
+
       const functionResponses = completedCalls.flatMap(
         (call) => call.response.responseParts,
       );
