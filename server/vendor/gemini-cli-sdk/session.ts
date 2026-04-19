@@ -22,6 +22,9 @@ import {
   ActivateSkillTool,
   type ResumedSessionData,
   PolicyDecision,
+  recordToolCallInteractions,
+  ToolErrorType,
+  isFatalToolError,
 } from '@google/gemini-cli-core';
 
 import { type Tool, SdkTool } from './tool.js';
@@ -186,7 +189,15 @@ export class GeminiCliSession {
       { text: prompt },
     ];
 
+    const maxTurns = this.config.getMaxSessionTurns();
+    let turnCount = 0;
+
     while (true) {
+      turnCount++;
+      if (maxTurns >= 0 && turnCount > maxTurns) {
+        yield { type: GeminiEventType.MaxSessionTurns };
+        return;
+      }
       if (typeof this.instructions === 'function') {
         const context: SessionContext = {
           sessionId,
@@ -222,6 +233,20 @@ export class GeminiCliSession {
             isClientInitiated: false,
             prompt_id: sessionId,
           });
+          continue;
+        }
+        // Bail out on terminal events instead of continuing the loop and
+        // potentially scheduling tools from a half-formed stream.
+        switch (event.type) {
+          case GeminiEventType.Error:
+          case GeminiEventType.InvalidStream:
+          case GeminiEventType.ContextWindowWillOverflow:
+          case GeminiEventType.UserCancelled:
+          case GeminiEventType.AgentExecutionStopped:
+          case GeminiEventType.MaxSessionTurns:
+            return;
+          default:
+            break;
         }
       }
 
@@ -266,8 +291,14 @@ export class GeminiCliSession {
       // Persist tool calls into the chat recording so they survive a server
       // reload. scheduleAgentTools doesn't do this itself — only the legacy
       // agent loop and local-executor call recordCompletedToolCalls — so when
-      // we drive the loop ourselves we have to record them here.
-      client.getChat().recordCompletedToolCalls(this.config.getModel(), completedCalls);
+      // we drive the loop ourselves we have to record them here. Prefer the
+      // model that actually served this turn (matters under auto-routing).
+      const recordedModel =
+        client.getCurrentSequenceModel() ?? this.config.getModel();
+      client.getChat().recordCompletedToolCalls(recordedModel, completedCalls);
+      // Code Assist tool-call telemetry. No-ops when not authed against a
+      // Code Assist server, so it's safe to call unconditionally.
+      await recordToolCallInteractions(this.config, completedCalls);
 
       // Surface each completed tool call to the consumer so it can render a
       // result alongside the earlier ToolCallRequest. Core does not emit these
@@ -279,6 +310,21 @@ export class GeminiCliSession {
           value: call.response,
         };
       }
+
+      // A tool can ask us to stop the loop entirely (e.g. complete_task) by
+      // returning STOP_EXECUTION; a fatal tool error means feeding the result
+      // back to the model would just spin. In both cases, end the stream
+      // instead of continuing the loop.
+      const stopTool = completedCalls.find(
+        (c) =>
+          c.response.errorType === ToolErrorType.STOP_EXECUTION &&
+          c.response.error !== undefined,
+      );
+      if (stopTool) return;
+      const fatalTool = completedCalls.find((c) =>
+        isFatalToolError(c.response.errorType),
+      );
+      if (fatalTool) return;
 
       const functionResponses = completedCalls.flatMap(
         (call) => call.response.responseParts,
