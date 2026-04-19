@@ -1281,19 +1281,26 @@ input, textarea { font: inherit; color: inherit; }
 }
 .dd-event .dd-evt-body {
   border-top: 1px solid var(--border);
-  padding: 6px 8px;
+  max-height: 320px;
+  overflow: auto;
   background: var(--bg-elev-2);
 }
 .dd-event .dd-evt-body pre {
   margin: 0;
+  padding: 6px 8px;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--fg);
-  max-height: 260px;
-  overflow: auto;
+}
+.dd-event[data-open="true"] .dd-evt-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 /* ─── tweaks panel ──────────────────────────────────────────────── */

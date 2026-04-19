@@ -807,7 +807,7 @@ function formatDebugTime(at) {
 }
 
 function DebugEventRow({ evt }) {
-  const [open, setOpen] = React.useState(evt.kind === "request" || evt.kind === "stream_error");
+  const [open, setOpen] = React.useState(false);
   const label = DEBUG_EVENT_LABELS[evt.kind] || evt.kind;
   const summary = summarizeDebugEvent(evt);
   return (
