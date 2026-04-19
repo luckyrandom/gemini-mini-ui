@@ -1,0 +1,19 @@
+{
+  "name": "gemini-mini-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "poc": "tsx playground/poc.ts",
+    "vendor:sdk": "bash scripts/vendor-sdk.sh"
+  },
+  "dependencies": {
+    "@google/gemini-cli-core": "0.40.0-nightly.20260415.g06e7621b2",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

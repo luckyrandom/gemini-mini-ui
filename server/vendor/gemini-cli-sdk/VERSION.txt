@@ -1,0 +1,5 @@
+source: https://github.com/google-gemini/gemini-cli@main
+commit: 8573650253888a252500856e240385ff8a2553c8
+sdk:    0.40.0-nightly.20260414.g5b1f7375a
+core:   0.40.0-nightly.20260414.g5b1f7375a
+copied: 2026-04-19T04:18:32Z
