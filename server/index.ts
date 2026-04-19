@@ -4,6 +4,7 @@
  * Endpoints:
  *   GET    /api/sessions                     → list in-memory sessions
  *   POST   /api/sessions        {cwd,title?} → create
+ *   GET    /api/sessions/:id                 → record + history loaded from disk
  *   POST   /api/sessions/:id/stream {text}   → NDJSON stream of SDK events
  *   POST   /api/sessions/:id/cancel          → abort in-flight stream
  *
@@ -14,6 +15,12 @@ import { randomUUID } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
+
+import {
+  Storage,
+  loadConversationRecord,
+  type MessageRecord,
+} from '@google/gemini-cli-core';
 
 import type { GeminiCliSession } from './vendor/gemini-cli-sdk/index.js';
 import { newSession } from './sdk.js';
@@ -89,6 +96,101 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
   }
+}
+
+type UiMessage =
+  | { id: string; role: 'user'; text: string; time: string }
+  | { id: string; role: 'assistant'; text: string; time: string; error?: boolean }
+  | {
+      id: string;
+      role: 'tool';
+      name: string;
+      args: Record<string, unknown>;
+      result: unknown;
+      time: string;
+      startedAt?: number;
+      duration?: number;
+    };
+
+function partsToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => {
+        if (typeof p === 'string') return p;
+        if (p && typeof p === 'object' && 'text' in p && typeof (p as { text: unknown }).text === 'string') {
+          return (p as { text: string }).text;
+        }
+        return '';
+      })
+      .join('');
+  }
+  if (content && typeof content === 'object' && 'text' in content && typeof (content as { text: unknown }).text === 'string') {
+    return (content as { text: string }).text;
+  }
+  return '';
+}
+
+function timeOf(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function normalizeMessages(records: MessageRecord[]): UiMessage[] {
+  const out: UiMessage[] = [];
+  for (const m of records) {
+    const t = timeOf(m.timestamp);
+    if (m.type === 'user') {
+      out.push({ id: m.id, role: 'user', text: partsToText(m.content), time: t });
+    } else if (m.type === 'gemini') {
+      for (const tc of m.toolCalls ?? []) {
+        out.push({
+          id: `${m.id}:${tc.id}`,
+          role: 'tool',
+          name: tc.name,
+          args: tc.args,
+          result: tc.resultDisplay ?? tc.result ?? null,
+          time: timeOf(tc.timestamp),
+        });
+      }
+      const text = partsToText(m.content);
+      if (text) out.push({ id: m.id, role: 'assistant', text, time: t });
+    } else if (m.type === 'error' || m.type === 'warning') {
+      out.push({ id: m.id, role: 'assistant', text: partsToText(m.content), time: t, error: true });
+    }
+  }
+  return out;
+}
+
+async function loadHistory(cwd: string, sessionId: string): Promise<UiMessage[]> {
+  try {
+    const storage = new Storage(cwd);
+    await storage.initialize();
+    const files = await storage.listProjectChatFiles();
+    const truncated = sessionId.slice(0, 8);
+    const candidates = files.filter((f) => f.filePath.includes(truncated));
+    const toCheck = candidates.length > 0 ? candidates : files;
+    for (const f of toCheck) {
+      const abs = join(storage.getProjectTempDir(), f.filePath);
+      const loaded = await loadConversationRecord(abs);
+      if (loaded && loaded.sessionId === sessionId) {
+        return normalizeMessages(loaded.messages);
+      }
+    }
+  } catch (err) {
+    console.warn('[history] load failed', err);
+  }
+  return [];
+}
+
+async function getSession(id: string, res: ServerResponse): Promise<void> {
+  const slot = sessions.get(id);
+  if (!slot) return sendJson(res, 404, { error: 'session not found' });
+  const messages = await loadHistory(slot.record.cwd, slot.record.id);
+  sendJson(res, 200, { record: slot.record, messages });
 }
 
 function listSessions(res: ServerResponse): void {
@@ -194,6 +296,7 @@ const server = createServer(async (req, res) => {
     if (m) {
       const id = m[1]!;
       const sub = m[2];
+      if (!sub && req.method === 'GET') return getSession(id, res);
       if (sub === '/stream' && req.method === 'POST') return streamSession(id, req, res);
       if (sub === '/cancel' && req.method === 'POST') return cancelSession(id, res);
     }

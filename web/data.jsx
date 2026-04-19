@@ -8,6 +8,12 @@ const api = {
     return await r.json();
   },
 
+  async get(id) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error(`get failed: ${r.status}`);
+    return await r.json();
+  },
+
   async create({ cwd, title } = {}) {
     const r = await fetch("/api/sessions", {
       method: "POST",

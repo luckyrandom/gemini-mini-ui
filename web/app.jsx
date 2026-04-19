@@ -8,6 +8,7 @@ function App() {
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [messagesById, setMessagesById] = useState({});
+  const [hydratedIds, setHydratedIds] = useState(() => new Set());
   const [streamingId, setStreamingId] = useState(null);
   const [bootError, setBootError] = useState(null);
 
@@ -57,6 +58,24 @@ function App() {
     })();
   }, []);
 
+  // hydrate history from the server whenever we switch to a session we
+  // haven't loaded yet (handles page reload + session-switch).
+  useEffect(() => {
+    if (!activeId || hydratedIds.has(activeId) || streamingId === activeId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { messages: history } = await api.get(activeId);
+        if (cancelled) return;
+        setMessagesById((prev) => ({ ...prev, [activeId]: history || [] }));
+        setHydratedIds((prev) => new Set(prev).add(activeId));
+      } catch (err) {
+        console.warn("load history failed", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeId, hydratedIds, streamingId]);
+
   const activeSession = sessions.find((s) => s.id === activeId) || null;
   const messages = (activeId && messagesById[activeId]) || [];
   const isStreaming = streamingId === activeId;
@@ -84,6 +103,11 @@ function App() {
     pushMsg(sid, { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true });
 
     setStreamingId(sid);
+    setHydratedIds((prev) => {
+      const next = new Set(prev);
+      next.add(sid);
+      return next;
+    });
     const toolByCallId = new Map();
     const pendingTools = new Set();
 
