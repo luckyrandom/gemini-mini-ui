@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch server/index.ts",
+    "start": "tsx server/index.ts",
     "poc": "tsx playground/poc.ts",
     "vendor:sdk": "bash scripts/vendor-sdk.sh"
   },
