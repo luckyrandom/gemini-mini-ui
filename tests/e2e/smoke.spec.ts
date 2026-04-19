@@ -146,6 +146,28 @@ test('approval modal: cancel returns an error to the stream', async ({ page }) =
   });
 });
 
+test('command palette: ⌘/ opens, shows Switch model, Escape closes', async ({ page }) => {
+  await page.goto('/');
+
+  // Wait for boot (sidebar creates a session, composer mounts).
+  await expect(page.locator('.composer textarea')).toBeVisible();
+  await expect(page.locator('.session-row')).toBeVisible();
+
+  // ⌘/ — open palette. Playwright uses ControlOrMeta to pick the platform key.
+  await page.keyboard.press('ControlOrMeta+/');
+
+  const palette = page.locator('.cmdk-card');
+  await expect(palette).toBeVisible();
+
+  const switchModel = palette.locator('.cmdk-item', { hasText: 'Switch model' });
+  await expect(switchModel).toBeVisible();
+  await expect(switchModel).not.toHaveClass(/disabled/);
+
+  // Escape closes.
+  await page.keyboard.press('Escape');
+  await expect(palette).toHaveCount(0);
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 

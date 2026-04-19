@@ -13,6 +13,7 @@ function App() {
   const [streamingId, setStreamingId] = useState(null);
   const [bootError, setBootError] = useState(null);
   const [pickingDir, setPickingDir] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugBySid, setDebugBySid] = useState({});
   const [pendingApprovalsById, setPendingApprovalsById] = useState({});
@@ -31,6 +32,24 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = tweaks.theme;
   }, [tweaks.theme]);
+
+  const newHereRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "n") {
+        e.preventDefault();
+        if (e.shiftKey) setPickingDir(true);
+        else newHereRef.current?.();
+      } else if (k === "/" && !e.shiftKey) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const setTweak = (k, v) => {
     setTweaksState((prev) => {
@@ -407,6 +426,19 @@ function App() {
 
   const handleNewSession = () => setPickingDir(true);
 
+  const handleNewSessionHere = async () => {
+    const cwd = sessions.find((s) => s.id === activeId)?.cwd;
+    try {
+      const rec = await api.create(cwd ? { cwd } : {});
+      setSessions((prev) => [rec, ...prev]);
+      setActiveId(rec.id);
+    } catch (err) {
+      showToast("Create failed");
+      console.error(err);
+    }
+  };
+  newHereRef.current = handleNewSessionHere;
+
   const createWithCwd = async (cwd) => {
     setPickingDir(false);
     try {
@@ -502,6 +534,24 @@ function App() {
     const el = logRef.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
+
+  const paletteCommands = [
+    {
+      id: "switch-model",
+      label: "Switch model",
+      disabled: !activeSession,
+      hint: activeSession ? "" : "Open a session first",
+      submenu: activeSession
+        ? MODELS.map((m) => ({
+            id: `model:${m.value || "default"}`,
+            label: m.label,
+            selected: (activeSession.model || "") === m.value,
+            trailing: (activeSession.model || "") === m.value ? "✓" : null,
+            run: () => handleModelChange(m.value),
+          }))
+        : undefined,
+    },
+  ];
 
   return (
     <>
@@ -627,6 +677,12 @@ function App() {
         <ApprovalModal
           pending={pendingApprovalsById[activeId]}
           onDecision={handleApproval}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          commands={paletteCommands}
+          onClose={() => setPaletteOpen(false)}
         />
       )}
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
