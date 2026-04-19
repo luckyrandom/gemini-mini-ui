@@ -263,6 +263,12 @@ export class GeminiCliSession {
         },
       );
 
+      // Persist tool calls into the chat recording so they survive a server
+      // reload. scheduleAgentTools doesn't do this itself — only the legacy
+      // agent loop and local-executor call recordCompletedToolCalls — so when
+      // we drive the loop ourselves we have to record them here.
+      client.getChat().recordCompletedToolCalls(this.config.getModel(), completedCalls);
+
       // Surface each completed tool call to the consumer so it can render a
       // result alongside the earlier ToolCallRequest. Core does not emit these
       // itself — the scheduler hands them back out-of-band — so this bridge
