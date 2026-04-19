@@ -694,20 +694,6 @@ function ChatHeader({ session, chatFile, onToast, debugOpen, onToggleDebug, debu
           }}
         >
           <BugIcon size={14} />
-          {debugCount > 0 && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: 2,
-                right: 2,
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "var(--accent)",
-              }}
-            />
-          )}
         </button>
       )}
       <div className="h-info-wrap" ref={wrapRef}>
