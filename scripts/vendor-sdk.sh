@@ -56,6 +56,8 @@ copy_from_dir() {
   mkdir -p "$dest_dir"
   find "$dest_dir" -maxdepth 1 -type f -name '*.ts' -delete
 
+  local restore_nullglob
+  restore_nullglob="$(shopt -p nullglob)"
   shopt -s nullglob
   local copied=0
   for f in "$src_dir"/*.ts; do
@@ -67,6 +69,7 @@ copy_from_dir() {
     cp "$f" "$dest_dir/$base"
     copied=$((copied + 1))
   done
+  eval "$restore_nullglob"
 
   if [[ $copied -eq 0 ]]; then
     echo "error: no .ts files copied from $src_dir" >&2
