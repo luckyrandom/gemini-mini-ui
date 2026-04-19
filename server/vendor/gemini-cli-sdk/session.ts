@@ -25,6 +25,10 @@ import {
   recordToolCallInteractions,
   ToolErrorType,
   isFatalToolError,
+  WRITE_FILE_TOOL_NAME,
+  EDIT_TOOL_NAME,
+  SHELL_TOOL_NAME,
+  type MessageBus,
 } from '@google/gemini-cli-core';
 
 import { type Tool, SdkTool } from './tool.js';
@@ -80,9 +84,31 @@ export class GeminiCliSession {
       fakeResponses: options.fakeResponses,
       skillsSupport: true,
       adminSkillsEnabled: true,
+      // Interactive mode is required so the policy engine's ASK_USER rules
+      // below actually prompt instead of erroring. The browser UI provides
+      // the "user" that answers the prompt.
+      interactive: true,
       policyEngineConfig: {
-        // TODO: Revisit this default when we have a mechanism for wiring up approvals
         defaultDecision: PolicyDecision.ALLOW,
+        rules: [
+          // Destructive / write tools are gated behind per-call approval.
+          // v1: no cross-turn memory — every call re-asks.
+          {
+            toolName: WRITE_FILE_TOOL_NAME,
+            decision: PolicyDecision.ASK_USER,
+            priority: 10,
+          },
+          {
+            toolName: EDIT_TOOL_NAME,
+            decision: PolicyDecision.ASK_USER,
+            priority: 10,
+          },
+          {
+            toolName: SHELL_TOOL_NAME,
+            decision: PolicyDecision.ASK_USER,
+            priority: 10,
+          },
+        ],
       },
     };
 
@@ -91,6 +117,16 @@ export class GeminiCliSession {
 
   get id(): string {
     return this.sessionId;
+  }
+
+  /**
+   * Exposes the message bus so the SDK embedder can participate in the
+   * tool-confirmation flow (subscribe to TOOL_CALLS_UPDATE, publish
+   * TOOL_CONFIRMATION_RESPONSE). Safe to access after construction.
+   */
+  get messageBus(): MessageBus {
+    const ctx: AgentLoopContext = this.config;
+    return ctx.messageBus;
   }
 
   async initialize(): Promise<void> {
