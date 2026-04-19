@@ -119,6 +119,18 @@ const InfoIcon = ({ size = 13 }) => (
     <circle cx="12" cy="8" r="0.5" fill="currentColor" />
   </svg>
 );
+const BugIcon = ({ size = 13 }) => (
+  <svg {...iconProps(size)}>
+    <rect x="8" y="6" width="8" height="12" rx="4" />
+    <path d="M8 10h-3" />
+    <path d="M19 10h-3" />
+    <path d="M8 14h-4" />
+    <path d="M20 14h-4" />
+    <path d="M8 18l-2 2" />
+    <path d="M16 18l2 2" />
+    <path d="M9 6a3 3 0 0 1 6 0" />
+  </svg>
+);
 const SlidersIcon = ({ size = 13 }) => (
   <svg {...iconProps(size)}>
     <line x1="4" y1="6" x2="20" y2="6" />
@@ -134,5 +146,5 @@ Object.assign(window, {
   SidebarIcon, GearIcon, PanelRightIcon, SearchIcon, PlusIcon, MoreIcon,
   CopyIcon, RegenIcon, SendIcon, StopIcon, PaperclipIcon,
   ChevronRightIcon, ChevronDownIcon, ToolIcon, SparkleIcon, AlertIcon,
-  MessagesIcon, XIcon, SlidersIcon, InfoIcon,
+  MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon,
 });

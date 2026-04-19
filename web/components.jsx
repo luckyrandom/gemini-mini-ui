@@ -546,7 +546,7 @@ function pickInlineArg(args) {
   return null;
 }
 
-function ChatHeader({ session, chatFile, onToast }) {
+function ChatHeader({ session, chatFile, onToast, debugOpen, onToggleDebug, debugCount }) {
   const [showInfo, setShowInfo] = React.useState(false);
   const wrapRef = React.useRef(null);
   React.useEffect(() => {
@@ -581,6 +581,35 @@ function ChatHeader({ session, chatFile, onToast }) {
           <span>created {created}</span>
         </div>
       </div>
+      {onToggleDebug && (
+        <button
+          className="h-info-btn"
+          title={debugOpen ? "Hide debug drawer" : `Show debug drawer${debugCount ? ` (${debugCount} events)` : ""}`}
+          aria-label="Toggle debug drawer"
+          aria-pressed={!!debugOpen}
+          onClick={onToggleDebug}
+          style={{
+            position: "relative",
+            ...(debugOpen ? { background: "var(--bg-elev-2)", color: "var(--fg)", borderColor: "var(--border)" } : null),
+          }}
+        >
+          <BugIcon size={14} />
+          {debugCount > 0 && (
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--accent)",
+              }}
+            />
+          )}
+        </button>
+      )}
       <div className="h-info-wrap" ref={wrapRef}>
         <button
           className="h-info-btn"
@@ -727,6 +756,135 @@ function Composer({ streaming, onSend, onStop, model, onModelChange }) {
   );
 }
 
+const DEBUG_EVENT_LABELS = {
+  request: "request",
+  chunk: "chunk",
+  tool_request: "tool →",
+  tool_response: "tool ←",
+  stream_error: "error",
+  stream_exception: "exception",
+  cancelled: "cancelled",
+  done: "done",
+};
+
+function summarizeDebugEvent(evt) {
+  const d = evt.data || {};
+  if (evt.kind === "request") {
+    const text = typeof d.text === "string" ? d.text : "";
+    const model = d.model ? `  [${d.model}]` : "";
+    return `${text.slice(0, 140)}${text.length > 140 ? "…" : ""}${model}`;
+  }
+  if (evt.kind === "chunk") {
+    const text = typeof d.value === "string" ? d.value : String(d.value ?? "");
+    return JSON.stringify(text).slice(0, 160);
+  }
+  if (evt.kind === "tool_request") {
+    const args = d.args ? safeStringify(d.args).replace(/\s+/g, " ").slice(0, 120) : "";
+    return `${d.name || "(unnamed)"}  ${args}`;
+  }
+  if (evt.kind === "tool_response") {
+    if (d.error) return `error: ${typeof d.error === "string" ? d.error : safeStringify(d.error)}`;
+    const body = d.resultDisplay ?? d.responseParts ?? d;
+    const preview = typeof body === "string" ? body : safeStringify(body);
+    return preview.replace(/\s+/g, " ").slice(0, 160);
+  }
+  if (evt.kind === "stream_error" || evt.kind === "stream_exception") {
+    return typeof d.message === "string" ? d.message : safeStringify(d);
+  }
+  if (evt.kind === "cancelled") return "user cancelled";
+  if (evt.kind === "done") return "stream complete";
+  return safeStringify(d).slice(0, 160);
+}
+
+function formatDebugTime(at) {
+  if (!at) return "";
+  const d = new Date(at);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  const ms = String(d.getMilliseconds()).padStart(3, "0");
+  return `${hh}:${mm}:${ss}.${ms}`;
+}
+
+function DebugEventRow({ evt }) {
+  const [open, setOpen] = React.useState(evt.kind === "request" || evt.kind === "stream_error");
+  const label = DEBUG_EVENT_LABELS[evt.kind] || evt.kind;
+  const summary = summarizeDebugEvent(evt);
+  return (
+    <div className="dd-event" data-open={open} data-kind={evt.kind}>
+      <div className="dd-evt-head" onClick={() => setOpen((v) => !v)}>
+        <span className="dd-evt-caret"><ChevronRightIcon size={10} /></span>
+        <span className="dd-evt-kind">{label}</span>
+        <span className="dd-evt-summary" title={summary}>{summary || "—"}</span>
+        <span className="dd-evt-time">{formatDebugTime(evt.at)}</span>
+      </div>
+      {open && (
+        <div className="dd-evt-body">
+          <pre>{safeStringify(evt.data)}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
+  const bodyRef = React.useRef(null);
+  const [stick, setStick] = React.useState(true);
+  React.useEffect(() => {
+    if (!open || !stick) return;
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [open, stick, events]);
+  const onScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+    setStick(atBottom);
+  };
+  if (!open) return null;
+  const count = events.length;
+  return (
+    <aside className="debug-drawer" role="complementary" aria-label="Debug drawer">
+      <div className="dd-head">
+        <span className="dd-title">Debug</span>
+        <span className="dd-count">{count}</span>
+        <div className="spacer" />
+        <button
+          type="button"
+          className="dd-btn"
+          onClick={onClear}
+          disabled={count === 0 || !sessionId}
+          title="Clear events for this session"
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          className="dd-btn"
+          onClick={onClose}
+          title="Close debug drawer"
+          aria-label="Close debug drawer"
+        >
+          <XIcon size={11} />
+        </button>
+      </div>
+      <div className="dd-body" ref={bodyRef} onScroll={onScroll}>
+        {count === 0 ? (
+          <div className="dd-empty">
+            <div>No debug events yet.</div>
+            <div className="dd-empty-hint">
+              Send a message to see the outgoing payload, streamed chunks, and tool activity.
+            </div>
+          </div>
+        ) : (
+          events.map((evt) => <DebugEventRow key={evt.id} evt={evt} />)
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function ArtifactPane() {
   return (
     <div className="pane artifact">
@@ -823,4 +981,5 @@ Object.assign(window, {
   TopBar, Sidebar, SessionRow,
   UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
   ChatHeader, Composer, ModelPicker, ArtifactPane, DirPicker,
+  DebugDrawer,
 });
