@@ -204,6 +204,111 @@ function groupByDir(sessions) {
   return groups;
 }
 
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 240;
+const DRAWER_MIN = 280;
+const DRAWER_MAX = 720;
+const DRAWER_DEFAULT = 320;
+const CENTER_MIN = 360;
+const SIDEBAR_WIDTH_KEY = "gm.sidebarWidth";
+const DRAWER_WIDTH_KEY = "gm.debugDrawerWidth";
+
+function readStoredWidth(key) {
+  try {
+    const raw = window.localStorage?.getItem(key);
+    const n = raw == null ? NaN : parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch { return null; }
+}
+
+function writeStoredWidth(key, value) {
+  try { window.localStorage?.setItem(key, String(Math.round(value))); } catch {}
+}
+
+function clearStoredWidth(key) {
+  try { window.localStorage?.removeItem(key); } catch {}
+}
+
+function clampSidebarWidth(w, layoutEl) {
+  const winW = window.innerWidth;
+  const artifactW = layoutEl
+    ? parseInt(getComputedStyle(layoutEl).getPropertyValue("--artifact-w"), 10) || 0
+    : 0;
+  const maxByWin = Math.max(SIDEBAR_MIN, winW - CENTER_MIN - artifactW);
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, maxByWin, Math.round(w)));
+}
+
+function clampDrawerWidth(w, drawerEl) {
+  const parent = drawerEl?.parentElement;
+  const parentW = parent ? parent.clientWidth : window.innerWidth;
+  const maxByParent = Math.max(DRAWER_MIN, parentW - CENTER_MIN);
+  return Math.max(DRAWER_MIN, Math.min(DRAWER_MAX, maxByParent, Math.round(w)));
+}
+
+function ResizeHandle({ side, ariaLabel, getStartWidth, onResize, onCommit, onReset }) {
+  const stateRef = React.useRef(null);
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const target = e.currentTarget;
+    try { target.setPointerCapture(e.pointerId); } catch {}
+    target.classList.add("dragging");
+    stateRef.current = {
+      active: true,
+      startX: e.clientX,
+      startW: getStartWidth(),
+      lastX: e.clientX,
+      raf: 0,
+    };
+  };
+
+  const onPointerMove = (e) => {
+    const s = stateRef.current;
+    if (!s || !s.active) return;
+    s.lastX = e.clientX;
+    if (s.raf) return;
+    s.raf = requestAnimationFrame(() => {
+      const s2 = stateRef.current;
+      if (!s2) return;
+      s2.raf = 0;
+      const dx = s2.lastX - s2.startX;
+      const next = s2.startW + (side === "right" ? dx : -dx);
+      onResize(next);
+    });
+  };
+
+  const endDrag = (e) => {
+    const s = stateRef.current;
+    if (!s || !s.active) return;
+    s.active = false;
+    if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
+    const target = e.currentTarget;
+    target.classList.remove("dragging");
+    try { target.releasePointerCapture(e.pointerId); } catch {}
+    const dx = s.lastX - s.startX;
+    stateRef.current = null;
+    if (dx === 0) return;
+    const next = s.startW + (side === "right" ? dx : -dx);
+    onCommit(next);
+  };
+
+  return (
+    <div
+      className={"resize-handle resize-handle--" + side}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={ariaLabel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDoubleClick={onReset}
+    />
+  );
+}
+
 function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, onRename, onDelete }) {
   if (collapsed) {
     return (
@@ -229,8 +334,40 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, 
     );
   }
   const groups = groupByDir(sessions);
+  const paneRef = React.useRef(null);
+
+  const withLayout = (fn) => {
+    const layout = paneRef.current?.closest(".layout");
+    if (!layout) return undefined;
+    return fn(layout);
+  };
+
+  const handleResize = (w) => withLayout((layout) => {
+    const clamped = clampSidebarWidth(w, layout);
+    layout.classList.add("layout--resizing");
+    layout.style.setProperty("--sidebar-w", clamped + "px");
+  });
+
+  const handleCommit = (w) => withLayout((layout) => {
+    const clamped = clampSidebarWidth(w, layout);
+    layout.style.setProperty("--sidebar-w", clamped + "px");
+    layout.classList.remove("layout--resizing");
+    writeStoredWidth(SIDEBAR_WIDTH_KEY, clamped);
+  });
+
+  const handleReset = () => withLayout((layout) => {
+    layout.style.removeProperty("--sidebar-w");
+    layout.classList.remove("layout--resizing");
+    clearStoredWidth(SIDEBAR_WIDTH_KEY);
+  });
+
+  const getStartWidth = () => withLayout((layout) => {
+    const v = parseInt(getComputedStyle(layout).getPropertyValue("--sidebar-w"), 10);
+    return Number.isFinite(v) ? v : SIDEBAR_DEFAULT;
+  }) ?? SIDEBAR_DEFAULT;
+
   return (
-    <div className="pane sidebar">
+    <div className="pane sidebar" ref={paneRef}>
       <div className="sidebar-head">
         <button className="new-btn" onClick={onNew}><PlusIcon size={12} /> New session</button>
         <div className="search">
@@ -258,6 +395,14 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, 
           />
         ))}
       </div>
+      <ResizeHandle
+        side="right"
+        ariaLabel="Resize sidebar"
+        getStartWidth={getStartWidth}
+        onResize={handleResize}
+        onCommit={handleCommit}
+        onReset={handleReset}
+      />
     </div>
   );
 }
@@ -1066,7 +1211,44 @@ function ChunkGroupBody({ data }) {
 
 function DebugDrawer({ open, events, requestSnapshots = [], sessionId, onClose, onClear }) {
   const bodyRef = React.useRef(null);
+  const drawerRef = React.useRef(null);
   const [stick, setStick] = React.useState(true);
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const el = drawerRef.current;
+    if (!el) return;
+    const saved = readStoredWidth(DRAWER_WIDTH_KEY);
+    if (saved == null) return;
+    const clamped = clampDrawerWidth(saved, el);
+    el.style.width = clamped + "px";
+  }, [open]);
+
+  const getDrawerStartWidth = () => {
+    const el = drawerRef.current;
+    if (!el) return DRAWER_DEFAULT;
+    return el.getBoundingClientRect().width || DRAWER_DEFAULT;
+  };
+
+  const handleDrawerResize = (w) => {
+    const el = drawerRef.current;
+    if (!el) return;
+    el.style.width = clampDrawerWidth(w, el) + "px";
+  };
+
+  const handleDrawerCommit = (w) => {
+    const el = drawerRef.current;
+    if (!el) return;
+    const clamped = clampDrawerWidth(w, el);
+    el.style.width = clamped + "px";
+    writeStoredWidth(DRAWER_WIDTH_KEY, clamped);
+  };
+
+  const handleDrawerReset = () => {
+    const el = drawerRef.current;
+    if (el) el.style.width = "";
+    clearStoredWidth(DRAWER_WIDTH_KEY);
+  };
   const [modeBySid, setModeBySid] = React.useState({});
   const [tabBySid, setTabBySid] = React.useState({});
   const [selectedTurnBySid, setSelectedTurnBySid] = React.useState({});
@@ -1109,7 +1291,15 @@ function DebugDrawer({ open, events, requestSnapshots = [], sessionId, onClose, 
   const count = events.length;
   const snapCount = requestSnapshots.length;
   return (
-    <aside className="debug-drawer" role="complementary" aria-label="Debug drawer">
+    <aside className="debug-drawer" role="complementary" aria-label="Debug drawer" ref={drawerRef}>
+      <ResizeHandle
+        side="left"
+        ariaLabel="Resize debug drawer"
+        getStartWidth={getDrawerStartWidth}
+        onResize={handleDrawerResize}
+        onCommit={handleDrawerCommit}
+        onReset={handleDrawerReset}
+      />
       <div className="dd-head">
         <span className="dd-title">Debug</span>
         <span className="dd-count">{tab === "request" ? snapCount : count}</span>
@@ -1629,4 +1819,5 @@ Object.assign(window, {
   DebugDrawer,
   ApprovalModal,
   CommandPalette,
+  SIDEBAR_WIDTH_KEY, clampSidebarWidth, readStoredWidth,
 });

@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useLayoutEffect, useRef, useCallback } = React;
 
 function App() {
   const [tweaks, setTweaksState] = useState(() => ({ ...window.__TWEAK_DEFAULTS }));
@@ -33,6 +33,22 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = tweaks.theme;
   }, [tweaks.theme]);
+
+  const layoutRef = useRef(null);
+  useLayoutEffect(() => {
+    const layout = layoutRef.current;
+    if (!layout) return;
+    if (tweaks.sidebarCollapsed) {
+      layout.style.removeProperty("--sidebar-w");
+      return;
+    }
+    const saved = readStoredWidth(SIDEBAR_WIDTH_KEY);
+    if (saved == null) {
+      layout.style.removeProperty("--sidebar-w");
+      return;
+    }
+    layout.style.setProperty("--sidebar-w", clampSidebarWidth(saved, layout) + "px");
+  }, [tweaks.sidebarCollapsed, tweaks.rightPaneOpen]);
 
   const newHereRef = useRef(null);
   useEffect(() => {
@@ -660,6 +676,7 @@ function App() {
         />
         <div
           className="layout"
+          ref={layoutRef}
           data-sidebar={tweaks.sidebarCollapsed ? "collapsed" : "expanded"}
           data-artifact={tweaks.rightPaneOpen ? "open" : "closed"}
         >

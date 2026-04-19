@@ -174,6 +174,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .layout[data-sidebar="collapsed"] { --sidebar-w: 44px; }
 .layout[data-artifact="open"] { --artifact-w: 320px; }
+.layout.layout--resizing { transition: none; user-select: none; }
 
 .pane {
   min-height: 0;
@@ -182,8 +183,39 @@ input, textarea { font: inherit; color: inherit; }
   flex-direction: column;
   border-right: 1px solid var(--border);
   background: var(--bg);
+  position: relative;
 }
 .pane:last-child { border-right: 0; border-left: 1px solid var(--border); }
+
+/* ─── resize handles ─────────────────────────────────────────────── */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 20;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.resize-handle--right { right: -2px; }
+.resize-handle--left  { left: -2px; }
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.resize-handle:hover::after,
+.resize-handle.dragging::after { opacity: 0.7; }
+.resize-handle.dragging::after { opacity: 1; }
 
 /* ─── sidebar ───────────────────────────────────────────────────────── */
 .sidebar {
@@ -1259,7 +1291,7 @@ input, textarea { font: inherit; color: inherit; }
 .debug-drawer {
   position: absolute;
   top: 0; right: 0; bottom: 0;
-  width: min(720px, 75%);
+  width: 320px;
   z-index: 30;
   background: var(--bg-elev-1);
   border-left: 1px solid var(--border-strong);
