@@ -200,12 +200,19 @@ function App() {
   };
 
   const handleNewSession = async () => {
+    const activeCwd = sessions.find((s) => s.id === activeId)?.cwd || "";
+    const input = window.prompt(
+      "Directory for new session (leave blank for server cwd):",
+      activeCwd,
+    );
+    if (input === null) return;
     try {
-      const rec = await api.create({});
+      const cwd = input.trim();
+      const rec = await api.create(cwd ? { cwd } : {});
       setSessions((prev) => [rec, ...prev]);
       setActiveId(rec.id);
     } catch (err) {
-      showToast("Create failed");
+      showToast(err?.message?.includes("400") ? "Invalid directory" : "Create failed");
       console.error(err);
     }
   };

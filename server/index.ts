@@ -251,7 +251,21 @@ function listSessions(res: ServerResponse): void {
 
 async function createSession(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = (await readJson(req)) as { cwd?: string; title?: string };
-  const cwd = body.cwd ? resolve(body.cwd) : process.cwd();
+  let cwd = process.cwd();
+  if (body.cwd && body.cwd.trim()) {
+    let raw = body.cwd.trim();
+    if (raw === '~' || raw.startsWith('~/')) raw = join(homedir(), raw.slice(1));
+    cwd = resolve(raw);
+    try {
+      if (!statSync(cwd).isDirectory()) {
+        sendJson(res, 400, { error: 'cwd is not a directory' });
+        return;
+      }
+    } catch {
+      sendJson(res, 400, { error: 'cwd does not exist' });
+      return;
+    }
+  }
   const id = randomUUID();
   const now = new Date().toISOString();
   const record: SessionRecord = {
