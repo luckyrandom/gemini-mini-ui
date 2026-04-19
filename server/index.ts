@@ -29,6 +29,7 @@ import {
 
 import type { GeminiCliSession } from './vendor/gemini-cli-sdk/index.js';
 import { resumeSession } from './sdk.js';
+import { ApprovalBridge, type ApprovalOutcome } from './approvals.js';
 
 type SessionRecord = {
   id: string;
@@ -43,6 +44,7 @@ type SessionSlot = {
   record: SessionRecord;
   session?: GeminiCliSession;
   abort?: AbortController;
+  bridge?: ApprovalBridge;
 };
 
 const PORT = Number(process.env['PORT'] ?? 3000);
@@ -399,6 +401,11 @@ async function streamSession(
     write({ type: 'error', value: { kind, message: message || 'Unknown error' } });
   };
 
+  // Bridge core's per-call approval requests into synthetic NDJSON events
+  // so the browser can render a modal and post the user's decision back.
+  const bridge = new ApprovalBridge(liveSession.messageBus, (evt) => write(evt));
+  slot.bridge = bridge;
+
   try {
     for await (const evt of liveSession.sendStream(text, abort.signal)) {
       if ((evt as { type?: unknown }).type === 'error') {
@@ -413,9 +420,36 @@ async function streamSession(
     const message = err instanceof Error ? err.message : String(err);
     writeTypedError(classifyThrown(err), message);
   } finally {
+    await bridge.cancelAllPending();
+    bridge.dispose();
+    slot.bridge = undefined;
     slot.abort = undefined;
     res.end();
   }
+}
+
+async function confirmSession(
+  id: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const slot = sessions.get(id);
+  if (!slot) return sendJson(res, 404, { error: 'session not found' });
+  const body = (await readJson(req)) as {
+    correlationId?: string;
+    outcome?: ApprovalOutcome;
+  };
+  const { correlationId, outcome } = body;
+  if (!correlationId || (outcome !== 'proceed' && outcome !== 'cancel')) {
+    return sendJson(res, 400, { error: 'correlationId and outcome required' });
+  }
+  const bridge = slot.bridge;
+  if (!bridge) return sendJson(res, 409, { error: 'no pending approval' });
+  if (!bridge.getPending(correlationId)) {
+    return sendJson(res, 404, { error: 'no pending approval for correlationId' });
+  }
+  await bridge.resolve(correlationId, outcome);
+  res.writeHead(204).end();
 }
 
 function expandHome(p: string): string {
@@ -480,7 +514,7 @@ const server = createServer(async (req, res) => {
     if (path === '/api/sessions' && req.method === 'POST') return createSession(req, res);
     if (path === '/api/ls' && req.method === 'GET') return listDirs(req, res);
 
-    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel)?$/);
+    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm)?$/);
     if (m) {
       const id = m[1]!;
       const sub = m[2];
@@ -489,6 +523,7 @@ const server = createServer(async (req, res) => {
       if (!sub && req.method === 'DELETE') return deleteSession(id, res);
       if (sub === '/stream' && req.method === 'POST') return streamSession(id, req, res);
       if (sub === '/cancel' && req.method === 'POST') return cancelSession(id, res);
+      if (sub === '/confirm' && req.method === 'POST') return confirmSession(id, req, res);
     }
 
     sendJson(res, 404, { error: 'not found' });
