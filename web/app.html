@@ -1552,6 +1552,88 @@ input, textarea { font: inherit; color: inherit; }
 .dp-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .dp-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ─── approval modal ───────────────────────────────────────────── */
+.approval-backdrop {
+  position: fixed; inset: 0;
+  background: rgb(0 0 0 / 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+  z-index: 1800;
+  animation: pop-in 120ms ease;
+}
+.approval-card {
+  width: min(620px, 94vw);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.approval-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.approval-head .warn { color: var(--danger); }
+.approval-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.approval-tool {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.approval-tool .tool-name { color: var(--accent); font-weight: 600; }
+.approval-args {
+  max-height: 220px; overflow-y: auto;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre;
+}
+.approval-note {
+  color: var(--fg-muted); font-size: 12px;
+}
+.approval-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev-2);
+}
+.approval-btn {
+  padding: 5px 14px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.approval-btn:hover { background: var(--bg-hover); }
+.approval-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.approval-btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* badge shown on tool-call rows while awaiting approval */
+.tool-call .awaiting {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  background: rgb(255 200 0 / 0.15);
+  border: 1px solid rgb(255 200 0 / 0.3);
+  color: #e6b400;
+  letter-spacing: 0.02em;
+}
+
 </style>
 </head>
 <body>

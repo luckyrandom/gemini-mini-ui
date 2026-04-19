@@ -38,6 +38,17 @@ const api = {
     await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
   },
 
+  async confirm(id, correlationId, outcome) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/confirm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ correlationId, outcome }),
+    });
+    if (!r.ok && r.status !== 409 && r.status !== 404) {
+      throw new Error(`confirm failed: ${r.status}`);
+    }
+  },
+
   async listDirs(q) {
     const r = await fetch(`/api/ls?q=${encodeURIComponent(q || "")}`);
     if (!r.ok) throw new Error(`ls failed: ${r.status}`);

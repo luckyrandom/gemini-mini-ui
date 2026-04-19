@@ -15,6 +15,7 @@ function App() {
   const [pickingDir, setPickingDir] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugBySid, setDebugBySid] = useState({});
+  const [pendingApprovalsById, setPendingApprovalsById] = useState({});
 
   useEffect(() => {
     const handler = (e) => {
@@ -177,6 +178,10 @@ function App() {
       });
     };
 
+    // Maps correlationId → tool-call row id so approval resolution can clear
+    // the "awaiting" state on the right row.
+    const approvalToToolRow = new Map();
+
     try {
       await api.stream(sid, text, (evt) => {
         const type = evt.type;
@@ -217,6 +222,28 @@ function App() {
               : (v.resultDisplay ?? v.responseParts ?? { ok: true });
             updateMsg(sid, mid, { result, duration: Date.now() });
           }
+        } else if (type === "tool_confirmation_request") {
+          const v = evt.value || {};
+          pushDebug(sid, "tool_confirmation_request", v);
+          const toolRowId = toolByCallId.get(v.callId);
+          if (toolRowId) {
+            approvalToToolRow.set(v.correlationId, toolRowId);
+            updateMsg(sid, toolRowId, { awaitingApproval: true });
+          }
+          setPendingApprovalsById((prev) => ({ ...prev, [sid]: v }));
+        } else if (type === "tool_confirmation_resolved") {
+          const v = evt.value || {};
+          pushDebug(sid, "tool_confirmation_resolved", v);
+          const toolRowId = approvalToToolRow.get(v.correlationId);
+          if (toolRowId) {
+            approvalToToolRow.delete(v.correlationId);
+            updateMsg(sid, toolRowId, { awaitingApproval: false });
+          }
+          setPendingApprovalsById((prev) => {
+            if (!prev[sid] || prev[sid].correlationId !== v.correlationId) return prev;
+            const { [sid]: _gone, ...rest } = prev;
+            return rest;
+          });
         } else if (type === "error") {
           const kind = evt.value?.kind || "model";
           const msg = evt.value?.message || evt.value?.error?.message || "Stream error";
@@ -237,6 +264,11 @@ function App() {
       emitError(kind, err?.message || String(err));
     } finally {
       finalizePendingTools("incomplete");
+      setPendingApprovalsById((prev) => {
+        if (!(sid in prev)) return prev;
+        const { [sid]: _gone, ...rest } = prev;
+        return rest;
+      });
       setStreamingId((cur) => (cur === sid ? null : cur));
       setMessagesById((prev) => {
         const list = (prev[sid] || []).map((m) =>
@@ -278,6 +310,25 @@ function App() {
     if (!activeId) return;
     await api.cancel(activeId);
     showToast("Stopped");
+  };
+
+  const handleApproval = async (outcome) => {
+    if (!activeId) return;
+    const pending = pendingApprovalsById[activeId];
+    if (!pending) return;
+    // Clear optimistically so the modal closes even if the resolved event
+    // arrives after the HTTP POST returns.
+    setPendingApprovalsById((prev) => {
+      if (!prev[activeId] || prev[activeId].correlationId !== pending.correlationId) return prev;
+      const { [activeId]: _gone, ...rest } = prev;
+      return rest;
+    });
+    try {
+      await api.confirm(activeId, pending.correlationId, outcome);
+    } catch (err) {
+      console.error("approval failed", err);
+      showToast("Approval failed");
+    }
   };
 
   const handleModelChange = async (model) => {
@@ -474,6 +525,12 @@ function App() {
           recent={recentDirs}
           onCancel={() => setPickingDir(false)}
           onPick={createWithCwd}
+        />
+      )}
+      {activeId && pendingApprovalsById[activeId] && (
+        <ApprovalModal
+          pending={pendingApprovalsById[activeId]}
+          onDecision={handleApproval}
         />
       )}
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>

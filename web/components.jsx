@@ -342,6 +342,7 @@ function ToolCallRow({ m, defaultOpen }) {
   React.useEffect(() => setOpen(defaultOpen), [defaultOpen]);
 
   const argsStr = safeStringify(m.args);
+  const awaiting = !!m.awaitingApproval && m.result == null;
   const duration = m.duration && m.startedAt ? `${m.duration - m.startedAt}ms` : (m.result == null ? "…" : "");
   const inlineArg = pickInlineArg(m.args);
   const resultView = renderResult(m.result, m.name);
@@ -358,6 +359,7 @@ function ToolCallRow({ m, defaultOpen }) {
         <span className="badge">tool</span>
         <ToolIcon />
         <span className="tool-name">{m.name}</span>
+        {awaiting && <span className="awaiting">awaiting approval</span>}
         {inlineArg && (
           <>
             <span style={{ color: "var(--fg-dim)" }}>(</span>
@@ -1081,9 +1083,58 @@ function DirPicker({ initial, recent, onCancel, onPick }) {
   );
 }
 
+function ApprovalModal({ pending, onDecision }) {
+  const proceedRef = React.useRef(null);
+  React.useEffect(() => { proceedRef.current?.focus(); }, [pending?.correlationId]);
+
+  if (!pending) return null;
+  const { toolName, args, details } = pending;
+  const diff = details && details.type === 'edit' ? details : null;
+  const argsStr = safeStringify(args ?? {});
+
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision('proceed'); }
+  };
+
+  return (
+    <div className="approval-backdrop" onKeyDown={onKey}>
+      <div className="approval-card" role="dialog" aria-label="Tool approval" aria-modal="true">
+        <div className="approval-head">
+          <span className="warn"><AlertIcon size={12} /></span>
+          <span>Approve tool call</span>
+        </div>
+        <div className="approval-body">
+          <div className="approval-tool">
+            <span>tool</span>
+            <span className="tool-name">{toolName}</span>
+          </div>
+          {diff && (
+            <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
+          )}
+          {!diff && (
+            <pre className="approval-args">{argsStr}</pre>
+          )}
+          <div className="approval-note">
+            v1: every destructive call is prompted individually. Cancelling sends a tool
+            error back to the model; proceed runs it once.
+          </div>
+        </div>
+        <div className="approval-foot">
+          <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
+          <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>
+            Allow
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   TopBar, Sidebar, SessionRow,
   UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
   ChatHeader, Composer, ModelPicker, ArtifactPane, DirPicker,
   DebugDrawer,
+  ApprovalModal,
 });
