@@ -1186,6 +1186,29 @@ input, textarea { font: inherit; color: inherit; }
 }
 .debug-drawer .dd-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--fg); }
 .debug-drawer .dd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.debug-drawer .dd-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-elev-1);
+}
+.debug-drawer .dd-mode-btn {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.debug-drawer .dd-mode-btn + .dd-mode-btn { border-left: 1px solid var(--border); }
+.debug-drawer .dd-mode-btn:hover { color: var(--fg); }
+.debug-drawer .dd-mode-btn.active { background: var(--bg-elev-2); color: var(--fg); }
 .debug-drawer .dd-body {
   flex: 1;
   overflow-y: auto;
@@ -1253,7 +1276,8 @@ input, textarea { font: inherit; color: inherit; }
   flex-shrink: 0;
 }
 .dd-event[data-kind="request"] .dd-evt-kind { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); }
-.dd-event[data-kind="chunk"] .dd-evt-kind { color: var(--success); border-color: color-mix(in oklab, var(--success) 40%, var(--border)); }
+.dd-event[data-kind="chunk"] .dd-evt-kind,
+.dd-event[data-kind="chunk_group"] .dd-evt-kind { color: var(--success); border-color: color-mix(in oklab, var(--success) 40%, var(--border)); }
 .dd-event[data-kind="tool_request"] .dd-evt-kind,
 .dd-event[data-kind="tool_response"] .dd-evt-kind {
   color: oklch(74% 0.13 60);
@@ -1302,6 +1326,27 @@ input, textarea { font: inherit; color: inherit; }
   z-index: 1;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+}
+.dd-chunk-group .dd-chunk-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  background: var(--bg);
+}
+.dd-chunk-group .dd-chunk-text {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg);
 }
 
 /* ─── tweaks panel ──────────────────────────────────────────────── */
