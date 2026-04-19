@@ -38,7 +38,7 @@ function TopBar({ tweaks, setTweak, onToast, activeSession }) {
   );
 }
 
-function DirGroup({ cwd, items, activeId, streamingId, onSelect }) {
+function DirGroup({ cwd, items, activeId, streamingId, onSelect, onRename, onDelete }) {
   const [collapsed, setCollapsed] = React.useState(false);
   return (
     <div className="dir-group">
@@ -61,6 +61,8 @@ function DirGroup({ cwd, items, activeId, streamingId, onSelect }) {
               active={s.id === activeId}
               streaming={s.id === streamingId}
               onClick={() => onSelect(s.id)}
+              onRename={onRename}
+              onDelete={onDelete}
             />
           ))}
         </div>
@@ -69,18 +71,99 @@ function DirGroup({ cwd, items, activeId, streamingId, onSelect }) {
   );
 }
 
-function SessionRow({ s, active, streaming, onClick }) {
+function SessionRow({ s, active, streaming, onClick, onRename, onDelete }) {
   const relLast = relativeTime(s.lastUsedAt);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(s.title || "");
+  const wrapRef = React.useRef(null);
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
+
+  React.useEffect(() => {
+    if (!editing) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, [editing]);
+
+  const startRename = (e) => {
+    e?.stopPropagation();
+    setMenuOpen(false);
+    setDraft(s.title || "");
+    setEditing(true);
+  };
+  const commitRename = () => {
+    const trimmed = draft.trim();
+    setEditing(false);
+    if (!trimmed || trimmed === (s.title || "")) return;
+    onRename?.(s.id, trimmed);
+  };
+  const cancelRename = () => {
+    setEditing(false);
+    setDraft(s.title || "");
+  };
+  const handleDelete = (e) => {
+    e.stopPropagation();
+    setMenuOpen(false);
+    if (!window.confirm(`Delete "${s.title || 'Untitled'}"?`)) return;
+    onDelete?.(s.id);
+  };
+
   return (
-    <div className={"session-row" + (active ? " active" : "")} onClick={onClick}>
+    <div
+      className={"session-row" + (active ? " active" : "") + (editing ? " editing" : "")}
+      onClick={editing ? undefined : onClick}
+      onDoubleClick={editing ? undefined : startRename}
+    >
       <div className="title">
         {streaming && <span className="streaming-dot" />}
-        <span className="title-text">{s.title || "Untitled"}</span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="title-edit"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+              else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+            }}
+            onBlur={commitRename}
+            spellCheck={false}
+          />
+        ) : (
+          <span className="title-text">{s.title || "Untitled"}</span>
+        )}
       </div>
       <div className="meta">{relLast}</div>
-      <button className="row-menu" onClick={(e) => e.stopPropagation()} title="More">
-        <MoreIcon />
-      </button>
+      {!editing && (
+        <div className="row-menu-wrap" ref={wrapRef}>
+          <button
+            className="row-menu"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            title="More"
+            aria-label="More actions"
+          >
+            <MoreIcon />
+          </button>
+          {menuOpen && (
+            <div className="row-menu-pop" role="menu" onClick={(e) => e.stopPropagation()}>
+              <button type="button" role="menuitem" onClick={startRename}>Rename</button>
+              <button type="button" role="menuitem" className="danger" onClick={handleDelete}>Delete</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -119,7 +202,7 @@ function groupByDir(sessions) {
   return groups;
 }
 
-function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew }) {
+function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, onRename, onDelete }) {
   if (collapsed) {
     return (
       <div className="pane sidebar">
@@ -168,6 +251,8 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew }
             activeId={activeId}
             streamingId={streamingId}
             onSelect={onSelect}
+            onRename={onRename}
+            onDelete={onDelete}
           />
         ))}
       </div>

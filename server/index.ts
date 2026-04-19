@@ -5,6 +5,8 @@
  *   GET    /api/sessions                     → list in-memory sessions
  *   POST   /api/sessions        {cwd,title?} → create
  *   GET    /api/sessions/:id                 → record + history loaded from disk
+ *   PATCH  /api/sessions/:id    {title}      → rename session
+ *   DELETE /api/sessions/:id                 → abort + remove session
  *   POST   /api/sessions/:id/stream {text}   → NDJSON stream of SDK events
  *   POST   /api/sessions/:id/cancel          → abort in-flight stream
  *
@@ -264,6 +266,26 @@ async function createSession(req: IncomingMessage, res: ServerResponse): Promise
   sendJson(res, 201, record);
 }
 
+async function updateSession(id: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const slot = sessions.get(id);
+  if (!slot) return sendJson(res, 404, { error: 'session not found' });
+  const body = (await readJson(req)) as { title?: string };
+  if (typeof body.title === 'string') {
+    slot.record.title = body.title.trim() || 'Untitled';
+    void saveIndex();
+  }
+  sendJson(res, 200, slot.record);
+}
+
+function deleteSession(id: string, res: ServerResponse): void {
+  const slot = sessions.get(id);
+  if (!slot) return sendJson(res, 404, { error: 'session not found' });
+  slot.abort?.abort();
+  sessions.delete(id);
+  void saveIndex();
+  res.writeHead(204).end();
+}
+
 async function streamSession(
   id: string,
   req: IncomingMessage,
@@ -355,6 +377,8 @@ const server = createServer(async (req, res) => {
       const id = m[1]!;
       const sub = m[2];
       if (!sub && req.method === 'GET') return getSession(id, res);
+      if (!sub && req.method === 'PATCH') return updateSession(id, req, res);
+      if (!sub && req.method === 'DELETE') return deleteSession(id, res);
       if (sub === '/stream' && req.method === 'POST') return streamSession(id, req, res);
       if (sub === '/cancel' && req.method === 'POST') return cancelSession(id, res);
     }

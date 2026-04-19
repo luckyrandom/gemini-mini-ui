@@ -28,6 +28,21 @@ const api = {
     await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
   },
 
+  async update(id, patch) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) throw new Error(`update failed: ${r.status}`);
+    return await r.json();
+  },
+
+  async remove(id) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 404) throw new Error(`delete failed: ${r.status}`);
+  },
+
   async stream(id, text, onEvent, signal) {
     const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/stream`, {
       method: "POST",

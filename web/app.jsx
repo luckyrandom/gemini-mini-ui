@@ -210,6 +210,47 @@ function App() {
     }
   };
 
+  const handleRenameSession = async (id, title) => {
+    // Optimistic — server is the source of truth on next reload, but the
+    // PATCH is cheap enough that we don't need a separate revert path.
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+    try {
+      await api.update(id, { title });
+    } catch (err) {
+      showToast("Rename failed");
+      console.error(err);
+      // Refetch to recover on failure.
+      api.list().then(setSessions).catch(() => {});
+    }
+  };
+
+  const handleDeleteSession = async (id) => {
+    const wasActive = id === activeId;
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (wasActive) setActiveId(next[0]?.id ?? null);
+      return next;
+    });
+    setMessagesById((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _gone, ...rest } = prev;
+      return rest;
+    });
+    setHydratedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    try {
+      await api.remove(id);
+    } catch (err) {
+      showToast("Delete failed");
+      console.error(err);
+      api.list().then(setSessions).catch(() => {});
+    }
+  };
+
   const logRef = useRef(null);
   const [showJump, setShowJump] = useState(false);
   useEffect(() => {
@@ -255,6 +296,8 @@ function App() {
             streamingId={streamingId}
             onSelect={setActiveId}
             onNew={handleNewSession}
+            onRename={handleRenameSession}
+            onDelete={handleDeleteSession}
           />
 
           <div className="pane chat">
