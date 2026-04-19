@@ -261,25 +261,29 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, 
 }
 
 function UserBubble({ m, onFork, forkDisabled }) {
+  const copy = () => navigator.clipboard?.writeText(m.text || "");
   return (
     <div className="msg user">
-      <div className="label">
-        <span className="role">you</span>
-        <span>·</span>
-        <span title={m.time}>{formatTime(m.time)}</span>
-      </div>
       <div className="bubble">{m.text}</div>
-      {onFork && (
-        <div className="footer">
-          <button
-            onClick={() => onFork(m.id)}
-            disabled={forkDisabled}
-            title="Fork into a new session up to and including this message"
-          >
-            <ForkIcon /> fork from here
+      <div className="meta">
+        <span className="meta-who" title="You"><UserIcon size={11} /></span>
+        <span className="meta-time" title={m.time}>{formatTime(m.time)}</span>
+        <span className="meta-actions">
+          <button className="meta-btn" onClick={copy} title="Copy message">
+            <CopyIcon size={10} />
           </button>
-        </div>
-      )}
+          {onFork && (
+            <button
+              className="meta-btn"
+              onClick={() => onFork(m.id)}
+              disabled={forkDisabled}
+              title="Fork into a new session up to and including this message"
+            >
+              <ForkIcon size={10} />
+            </button>
+          )}
+        </span>
+      </div>
     </div>
   );
 }
@@ -294,14 +298,9 @@ function AssistantBubble({
   currentModel,
 }) {
   const text = m.text || "";
+  const copy = () => navigator.clipboard?.writeText(text);
   return (
     <div className="msg assistant">
-      <div className="label">
-        <span className="role">assistant</span>
-        <span>·</span>
-        <span title={m.time}>{formatTime(m.time)}</span>
-        {streaming && <span style={{ color: "var(--accent)" }}>streaming…</span>}
-      </div>
       <div className="bubble">
         {text ? <Markdown text={text} /> : (streaming ? <span style={{ color: "var(--fg-muted)" }}>Thinking…</span> : null)}
         {streaming && (
@@ -311,27 +310,35 @@ function AssistantBubble({
           </div>
         )}
       </div>
-      {!streaming && text && (
-        <div className="footer">
-          <button onClick={() => navigator.clipboard?.writeText(`[${formatTime(m.time)}] assistant\n\n${text}`)}><CopyIcon /> copy</button>
-          {onFork && (
-            <button
-              onClick={() => onFork(m.id)}
-              disabled={forkDisabled}
-              title="Fork into a new session up to and including this message"
-            >
-              <ForkIcon /> fork from here
+      <div className="meta">
+        <span className="meta-who" title="Assistant"><AssistantIcon size={11} /></span>
+        <span className="meta-time" title={m.time}>{formatTime(m.time)}</span>
+        {streaming && <span className="meta-streaming">streaming…</span>}
+        {!streaming && text && (
+          <span className="meta-actions">
+            <button className="meta-btn" onClick={copy} title="Copy message">
+              <CopyIcon size={10} />
             </button>
-          )}
-          {onResend && (
-            <ResendMenu
-              onResend={onResend}
-              disabled={resendDisabled}
-              currentModel={currentModel}
-            />
-          )}
-        </div>
-      )}
+            {onFork && (
+              <button
+                className="meta-btn"
+                onClick={() => onFork(m.id)}
+                disabled={forkDisabled}
+                title="Fork into a new session up to and including this message"
+              >
+                <ForkIcon size={10} />
+              </button>
+            )}
+            {onResend && (
+              <ResendMenu
+                onResend={onResend}
+                disabled={resendDisabled}
+                currentModel={currentModel}
+              />
+            )}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -354,11 +361,12 @@ function ResendMenu({ onResend, disabled, currentModel }) {
   return (
     <div className="resend-menu" ref={wrapRef}>
       <button
+        className="meta-btn"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
         title="Rewind and regenerate this turn, optionally with a different model"
       >
-        <RegenIcon /> regenerate
+        <RegenIcon size={10} />
       </button>
       {open && (
         <div className="resend-pop" role="menu">
@@ -420,7 +428,7 @@ function ErrorBubble({ m, onRetry }) {
   );
 }
 
-function ToolCallRow({ m, defaultOpen }) {
+function ToolCallRow({ m, defaultOpen, groupPrefix }) {
   const [open, setOpen] = React.useState(defaultOpen);
   React.useEffect(() => setOpen(defaultOpen), [defaultOpen]);
 
@@ -440,22 +448,20 @@ function ToolCallRow({ m, defaultOpen }) {
   return (
     <div className="tool-call" data-open={open}>
       <div className="tc-head" onClick={() => setOpen(!open)}>
+        {groupPrefix}
         <span className="caret-icon"><ChevronRightIcon /></span>
-        <span className="badge">tool</span>
         <ToolIcon />
         <span className="tool-name">{m.name}</span>
+        {inlineArg && (
+          <span className="tc-inline-arg">
+            <span className="tok-pun">(</span>
+            <span className="tok-str">{inlineArg.val}</span>
+            <span className="tok-pun">)</span>
+          </span>
+        )}
         {awaiting && <span className="awaiting">awaiting approval</span>}
         {progressMsg && <span className="awaiting">{progressMsg}</span>}
-        {inlineArg && (
-          <>
-            <span style={{ color: "var(--fg-dim)" }}>(</span>
-            <span className="tok-key">{inlineArg.key}</span>
-            <span className="tok-pun">=</span>
-            <span className="tok-str">"{inlineArg.val}"</span>
-            <span style={{ color: "var(--fg-dim)" }}>)</span>
-          </>
-        )}
-        <span className="duration">{duration}</span>
+        {duration && <span className="duration">{duration}</span>}
       </div>
       {open && (
         <div className="tc-body">
@@ -477,43 +483,42 @@ function ToolCallRow({ m, defaultOpen }) {
 
 function ToolGroup({ tools, defaultOpen }) {
   const [expanded, setExpanded] = React.useState(false);
-  if (tools.length === 1) {
-    return <ToolCallRow m={tools[0]} defaultOpen={defaultOpen} />;
-  }
+  const single = tools.length === 1;
   const hidden = tools.length - 1;
-  const anyAwaiting = tools.some((t) => t.awaitingApproval && t.result == null);
-  const anyRunning = tools.some((t) => t.result == null);
-  if (expanded) {
+  if (single) {
     return (
       <div className="tool-group">
-        <button
-          type="button"
-          className="tool-group-toggle"
-          onClick={() => setExpanded(false)}
-          title="Collapse tool calls"
-        >
-          <ChevronDownIcon size={10} /> collapse {tools.length} tool calls
-        </button>
-        {tools.map((t) => (
-          <ToolCallRow key={t.id} m={t} defaultOpen={defaultOpen} />
-        ))}
+        <ToolCallRow m={tools[0]} defaultOpen={defaultOpen} />
       </div>
     );
   }
   const last = tools[tools.length - 1];
+  const prefix = !expanded ? (
+    <button
+      type="button"
+      className="tg-more"
+      title={`Show ${hidden} earlier tool call${hidden === 1 ? "" : "s"}`}
+      onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+    >
+      +{hidden}
+    </button>
+  ) : null;
   return (
     <div className="tool-group">
-      <button
-        type="button"
-        className="tool-group-toggle"
-        onClick={() => setExpanded(true)}
-        title="Show earlier tool calls"
-      >
-        <ChevronRightIcon size={10} /> show {hidden} earlier tool call{hidden === 1 ? "" : "s"}
-        {anyAwaiting && <span className="awaiting" style={{ marginLeft: 6 }}>awaiting approval</span>}
-        {!anyAwaiting && anyRunning && <span className="tool-group-hint">· running</span>}
-      </button>
-      <ToolCallRow m={last} defaultOpen={defaultOpen} />
+      {expanded && tools.slice(0, -1).map((t) => (
+        <ToolCallRow key={t.id} m={t} defaultOpen={defaultOpen} />
+      ))}
+      <ToolCallRow m={last} defaultOpen={defaultOpen} groupPrefix={prefix} />
+      {expanded && (
+        <button
+          type="button"
+          className="tg-collapse"
+          onClick={() => setExpanded(false)}
+          title="Collapse tool calls"
+        >
+          collapse
+        </button>
+      )}
     </div>
   );
 }

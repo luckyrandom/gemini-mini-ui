@@ -157,9 +157,23 @@ const SlidersIcon = ({ size = 13 }) => (
   </svg>
 );
 
+const UserIcon = ({ size = 12 }) => (
+  <svg {...iconProps(size)}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+  </svg>
+);
+const AssistantIcon = ({ size = 12 }) => (
+  <svg {...iconProps(size)}>
+    <path d="M12 3l1.8 4.8L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.7z" />
+    <path d="M18.5 16l.8 2.2L21.5 19l-2.2.8-.8 2.2-.8-2.2L15.5 19l2.2-.8z" />
+  </svg>
+);
+
 Object.assign(window, {
   SidebarIcon, GearIcon, PanelRightIcon, SearchIcon, PlusIcon, MoreIcon,
   CopyIcon, RegenIcon, SendIcon, StopIcon, PaperclipIcon,
   ChevronRightIcon, ChevronDownIcon, ToolIcon, SparkleIcon, AlertIcon,
   MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon, RetryIcon, ForkIcon,
+  UserIcon, AssistantIcon,
 });
