@@ -5,6 +5,9 @@ dist/
 .env
 .env.local
 
+# Local Claude Code state
+.claude/
+
 # Playwright
 test-results/
 playwright-report/
