@@ -683,8 +683,85 @@ function ArtifactPane() {
   );
 }
 
+function DirPicker({ initial, recent, onCancel, onPick }) {
+  const { useState, useEffect, useRef } = React;
+  const [value, setValue] = useState(initial || "");
+  const [matches, setMatches] = useState([]);
+  const [hover, setHover] = useState(0);
+  const inputRef = useRef(null);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+
+  useEffect(() => {
+    const id = ++reqIdRef.current;
+    const t = setTimeout(async () => {
+      try {
+        const { entries } = await api.listDirs(value);
+        if (reqIdRef.current === id) { setMatches(entries || []); setHover(0); }
+      } catch {
+        if (reqIdRef.current === id) setMatches([]);
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [value]);
+
+  const visible = value.trim() ? matches : recent;
+
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); onCancel(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHover((h) => Math.min(h + 1, Math.max(0, visible.length - 1))); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHover((h) => Math.max(0, h - 1)); return; }
+    if (e.key === "Tab" && visible[hover]) { e.preventDefault(); setValue(visible[hover] + "/"); return; }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const picked = (visible[hover] && !value.trim()) ? visible[hover] : value.trim();
+      if (picked) onPick(picked);
+    }
+  };
+
+  return (
+    <div className="dp-backdrop" onMouseDown={onCancel}>
+      <div className="dp-card" role="dialog" aria-label="Pick directory" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="dp-head">New session — directory</div>
+        <input
+          ref={inputRef}
+          className="dp-input"
+          value={value}
+          placeholder="/Users/you/project or ~/code"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={onKey}
+          spellCheck={false}
+        />
+        <div className="dp-list">
+          {visible.length === 0 && (
+            <div className="dp-empty">{value.trim() ? "No matches" : "No recent directories"}</div>
+          )}
+          {visible.map((p, i) => (
+            <button
+              key={p}
+              className={"dp-item" + (i === hover ? " on" : "")}
+              onMouseEnter={() => setHover(i)}
+              onClick={() => onPick(p)}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+        <div className="dp-foot">
+          <span className="dp-hint">↵ use · ⇥ complete · esc cancel</span>
+          <div className="dp-actions">
+            <button className="dp-btn" onClick={onCancel}>Cancel</button>
+            <button className="dp-btn primary" onClick={() => onPick(value.trim())} disabled={!value.trim()}>Create</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   TopBar, Sidebar, SessionRow,
   UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
-  ChatHeader, Composer, ArtifactPane,
+  ChatHeader, Composer, ArtifactPane, DirPicker,
 });

@@ -9,13 +9,14 @@
  *   DELETE /api/sessions/:id                 → abort + remove session
  *   POST   /api/sessions/:id/stream {text}   → NDJSON stream of SDK events
  *   POST   /api/sessions/:id/cancel          → abort in-flight stream
+ *   GET    /api/ls?q=<path>                  → directory autocomplete
  *
  * Static files under web/ are served at /. One process, one port.
  */
 
 import { randomUUID } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { homedir, platform } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
@@ -253,9 +254,7 @@ async function createSession(req: IncomingMessage, res: ServerResponse): Promise
   const body = (await readJson(req)) as { cwd?: string; title?: string };
   let cwd = process.cwd();
   if (body.cwd && body.cwd.trim()) {
-    let raw = body.cwd.trim();
-    if (raw === '~' || raw.startsWith('~/')) raw = join(homedir(), raw.slice(1));
-    cwd = resolve(raw);
+    cwd = resolve(expandHome(body.cwd.trim()));
     try {
       if (!statSync(cwd).isDirectory()) {
         sendJson(res, 400, { error: 'cwd is not a directory' });
@@ -366,6 +365,47 @@ async function streamSession(
   }
 }
 
+function expandHome(p: string): string {
+  if (p === '~' || p.startsWith('~/')) return join(homedir(), p.slice(1));
+  return p;
+}
+
+async function listDirs(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  const q = (url.searchParams.get('q') ?? '').trim();
+  let base: string;
+  let prefix = '';
+  if (!q) {
+    base = homedir();
+  } else {
+    const expanded = expandHome(q);
+    const abs = expanded.startsWith('/') ? expanded : resolve(process.cwd(), expanded);
+    try {
+      if (statSync(abs).isDirectory() && q.endsWith('/')) {
+        base = abs;
+      } else {
+        base = dirname(abs);
+        prefix = abs.slice(base.length + (base.endsWith('/') ? 0 : 1));
+      }
+    } catch {
+      base = dirname(abs);
+      prefix = abs.slice(base.length + (base.endsWith('/') ? 0 : 1));
+    }
+  }
+  try {
+    const entries = await readdir(base, { withFileTypes: true });
+    const matches = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+      .map((e) => join(base, e.name))
+      .sort()
+      .slice(0, 20);
+    sendJson(res, 200, { base, entries: matches });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendJson(res, 200, { base, entries: [], error: message });
+  }
+}
+
 function cancelSession(id: string, res: ServerResponse): void {
   const slot = sessions.get(id);
   if (!slot) return sendJson(res, 404, { error: 'session not found' });
@@ -385,6 +425,7 @@ const server = createServer(async (req, res) => {
 
     if (path === '/api/sessions' && req.method === 'GET') return listSessions(res);
     if (path === '/api/sessions' && req.method === 'POST') return createSession(req, res);
+    if (path === '/api/ls' && req.method === 'GET') return listDirs(req, res);
 
     const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel)?$/);
     if (m) {

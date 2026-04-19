@@ -12,6 +12,7 @@ function App() {
   const [hydratedIds, setHydratedIds] = useState(() => new Set());
   const [streamingId, setStreamingId] = useState(null);
   const [bootError, setBootError] = useState(null);
+  const [pickingDir, setPickingDir] = useState(false);
 
   useEffect(() => {
     const handler = (e) => {
@@ -199,15 +200,11 @@ function App() {
     showToast("Stopped");
   };
 
-  const handleNewSession = async () => {
-    const activeCwd = sessions.find((s) => s.id === activeId)?.cwd || "";
-    const input = window.prompt(
-      "Directory for new session (leave blank for server cwd):",
-      activeCwd,
-    );
-    if (input === null) return;
+  const handleNewSession = () => setPickingDir(true);
+
+  const createWithCwd = async (cwd) => {
+    setPickingDir(false);
     try {
-      const cwd = input.trim();
       const rec = await api.create(cwd ? { cwd } : {});
       setSessions((prev) => [rec, ...prev]);
       setActiveId(rec.id);
@@ -216,6 +213,8 @@ function App() {
       console.error(err);
     }
   };
+
+  const recentDirs = Array.from(new Set(sessions.map((s) => s.cwd).filter(Boolean))).slice(0, 8);
 
   const handleRenameSession = async (id, title) => {
     // Optimistic — server is the source of truth on next reload, but the
@@ -357,6 +356,14 @@ function App() {
       </div>
 
       {tweaksOpen && <TweaksPanel tweaks={tweaks} setTweak={setTweak} onClose={() => setTweaksOpen(false)} />}
+      {pickingDir && (
+        <DirPicker
+          initial={activeSession?.cwd || ""}
+          recent={recentDirs}
+          onCancel={() => setPickingDir(false)}
+          onPick={createWithCwd}
+        />
+      )}
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
     </>
   );

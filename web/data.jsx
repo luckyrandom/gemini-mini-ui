@@ -28,6 +28,12 @@ const api = {
     await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
   },
 
+  async listDirs(q) {
+    const r = await fetch(`/api/ls?q=${encodeURIComponent(q || "")}`);
+    if (!r.ok) throw new Error(`ls failed: ${r.status}`);
+    return await r.json();
+  },
+
   async update(id, patch) {
     const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`, {
       method: "PATCH",
