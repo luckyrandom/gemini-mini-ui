@@ -805,7 +805,8 @@ function Composer({ streaming, onSend, onStop, model, onModelChange }) {
   };
   React.useEffect(autosize, [val]);
   const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "Enter" && (mod || !e.shiftKey)) {
       e.preventDefault();
       if (val.trim() && !streaming) { onSend(val); setVal(""); }
     }
@@ -1431,6 +1432,89 @@ function DirPicker({ initial, recent, onCancel, onPick }) {
   );
 }
 
+function CommandPalette({ commands, onClose }) {
+  const { useState, useEffect, useRef, useMemo } = React;
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState({ kind: "list" });
+  const [hover, setHover] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, [mode.kind]);
+  useEffect(() => { setHover(0); }, [query, mode.kind]);
+
+  const visible = useMemo(() => {
+    if (mode.kind === "submenu") return mode.items;
+    const q = query.trim().toLowerCase();
+    const list = commands.filter((c) => !c.hidden);
+    if (!q) return list;
+    return list.filter((c) => c.label.toLowerCase().includes(q));
+  }, [commands, query, mode]);
+
+  const runItem = (item) => {
+    if (!item || item.disabled) return;
+    if (item.submenu) {
+      setMode({ kind: "submenu", title: item.label, items: item.submenu });
+      setQuery("");
+      return;
+    }
+    item.run?.();
+    onClose();
+  };
+
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (mode.kind === "submenu") { setMode({ kind: "list" }); setQuery(""); }
+      else onClose();
+      return;
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHover((h) => Math.min(h + 1, Math.max(0, visible.length - 1))); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHover((h) => Math.max(0, h - 1)); return; }
+    if (e.key === "Enter") { e.preventDefault(); runItem(visible[hover]); return; }
+  };
+
+  return (
+    <div className="cmdk-backdrop" onMouseDown={onClose}>
+      <div className="cmdk-card" role="dialog" aria-label="Command palette" onMouseDown={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          className="cmdk-input"
+          placeholder={mode.kind === "submenu" ? `${mode.title}…` : "Type a command…"}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKey}
+          spellCheck={false}
+          aria-label="Command palette input"
+        />
+        <div className="cmdk-list" role="listbox">
+          {visible.length === 0 && (
+            <div className="cmdk-empty">No matches</div>
+          )}
+          {visible.map((item, i) => (
+            <button
+              key={item.id}
+              type="button"
+              className={"cmdk-item" + (i === hover ? " on" : "") + (item.disabled ? " disabled" : "") + (item.selected ? " selected" : "")}
+              role="option"
+              aria-selected={i === hover}
+              disabled={!!item.disabled}
+              title={item.hint || ""}
+              onMouseEnter={() => setHover(i)}
+              onClick={() => runItem(item)}
+            >
+              <span className="cmdk-label">{item.label}</span>
+              {item.trailing && <span className="cmdk-trail">{item.trailing}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="cmdk-foot">
+          <span className="cmdk-hint">↑↓ navigate · ↵ run · esc {mode.kind === "submenu" ? "back" : "close"}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApprovalModal({ pending, onDecision }) {
   const proceedRef = React.useRef(null);
   React.useEffect(() => { proceedRef.current?.focus(); }, [pending?.correlationId]);
@@ -1485,4 +1569,5 @@ Object.assign(window, {
   ChatHeader, Composer, ModelPicker, ResendMenu, ArtifactPane, DirPicker,
   DebugDrawer,
   ApprovalModal,
+  CommandPalette,
 });
