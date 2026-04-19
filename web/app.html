@@ -584,11 +584,12 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--fg-dim);
   flex-shrink: 0;
   white-space: nowrap;
-  /* Reserve a consistent right-side lane so the bubble's flex:1 width stays
-     stable across messages — otherwise the "last assistant" row grows by a
-     button (ResendMenu) and nudges the bubble narrower than its siblings. */
-  min-width: 140px;
-  justify-content: flex-end;
+  /* Fixed right-side lane so every row's timestamp lands in the same column
+     regardless of which action buttons (copy / fork / resend) are present.
+     Timestamp packs at the start (next to the bubble); hover-revealed actions
+     extend further right within the reserved lane. */
+  width: 150px;
+  justify-content: flex-start;
 }
 .msg .meta .meta-who {
   display: inline-flex;
