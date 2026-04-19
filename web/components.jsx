@@ -858,6 +858,7 @@ function Composer({ streaming, onSend, onStop, model, onModelChange }) {
 
 const DEBUG_EVENT_LABELS = {
   request: "request",
+  request_raw: "request raw",
   chunk: "chunk",
   chunk_group: "chunks",
   tool_request: "tool →",
@@ -906,6 +907,11 @@ function summarizeDebugEvent(evt) {
     const model = d.model ? `  [${d.model}]` : "";
     return `${text.slice(0, 140)}${text.length > 140 ? "…" : ""}${model}`;
   }
+  if (evt.kind === "request_raw") {
+    const turns = d.transcript?.turns?.length ?? 0;
+    const promptBytes = d.prompt?.bytes ?? 0;
+    return `snapshot · ${turns} turn${turns === 1 ? "" : "s"} · prompt ${promptBytes}B`;
+  }
   if (evt.kind === "chunk") {
     const text = typeof d.value === "string" ? d.value : String(d.value ?? "");
     return JSON.stringify(text).slice(0, 160);
@@ -945,13 +951,20 @@ function formatDebugTime(at) {
   return `${hh}:${mm}:${ss}.${ms}`;
 }
 
-function DebugEventRow({ evt }) {
+function DebugEventRow({ evt, onOpenRequest }) {
   const [open, setOpen] = React.useState(false);
   const label = DEBUG_EVENT_LABELS[evt.kind] || evt.kind;
   const summary = summarizeDebugEvent(evt);
+  const handleHead = () => {
+    if (onOpenRequest) {
+      onOpenRequest();
+      return;
+    }
+    setOpen((v) => !v);
+  };
   return (
     <div className="dd-event" data-open={open} data-kind={evt.kind}>
-      <div className="dd-evt-head" onClick={() => setOpen((v) => !v)}>
+      <div className="dd-evt-head" onClick={handleHead}>
         <span className="dd-evt-caret"><ChevronRightIcon size={10} /></span>
         <span className="dd-evt-kind">{label}</span>
         <span className="dd-evt-summary" title={summary}>{summary || "—"}</span>
@@ -991,59 +1004,99 @@ function ChunkGroupBody({ data }) {
   );
 }
 
-function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
+function DebugDrawer({ open, events, requestSnapshots = [], sessionId, onClose, onClear }) {
   const bodyRef = React.useRef(null);
   const [stick, setStick] = React.useState(true);
   const [modeBySid, setModeBySid] = React.useState({});
+  const [tabBySid, setTabBySid] = React.useState({});
+  const [selectedTurnBySid, setSelectedTurnBySid] = React.useState({});
   const mode = (sessionId && modeBySid[sessionId]) || "merged";
+  const tab = (sessionId && tabBySid[sessionId]) || "events";
   const setMode = (next) => {
     if (!sessionId) return;
     setModeBySid((prev) => (prev[sessionId] === next ? prev : { ...prev, [sessionId]: next }));
   };
+  const setTab = (next) => {
+    if (!sessionId) return;
+    setTabBySid((prev) => (prev[sessionId] === next ? prev : { ...prev, [sessionId]: next }));
+  };
+  const selectedTurnId = sessionId ? selectedTurnBySid[sessionId] : undefined;
+  const setSelectedTurnId = (turnId) => {
+    if (!sessionId) return;
+    setSelectedTurnBySid((prev) => ({ ...prev, [sessionId]: turnId }));
+  };
+
   const visibleEvents = mode === "merged" ? mergeChunkRuns(events) : events;
   React.useEffect(() => {
-    if (!open || !stick) return;
+    if (!open || !stick || tab !== "events") return;
     const el = bodyRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [open, stick, visibleEvents]);
+  }, [open, stick, visibleEvents, tab]);
   const onScroll = () => {
     const el = bodyRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
     setStick(atBottom);
   };
+
+  const jumpToRequestTab = React.useCallback((turnId) => {
+    setTab("request");
+    if (turnId) setSelectedTurnId(turnId);
+  }, [sessionId]);
+
   if (!open) return null;
   const count = events.length;
+  const snapCount = requestSnapshots.length;
   return (
     <aside className="debug-drawer" role="complementary" aria-label="Debug drawer">
       <div className="dd-head">
         <span className="dd-title">Debug</span>
-        <span className="dd-count">{count}</span>
+        <span className="dd-count">{tab === "request" ? snapCount : count}</span>
         <div className="spacer" />
-        <div className="dd-mode" role="tablist" aria-label="Debug view mode">
+        <div className="dd-tabs" role="tablist" aria-label="Debug tab">
           <button
             type="button"
             role="tab"
-            aria-selected={mode === "merged"}
-            className={"dd-mode-btn" + (mode === "merged" ? " active" : "")}
-            onClick={() => setMode("merged")}
-            title="Collapse consecutive chunks into one row"
-          >Merged</button>
+            aria-selected={tab === "events"}
+            className={"dd-tab-btn" + (tab === "events" ? " active" : "")}
+            onClick={() => setTab("events")}
+            title="Stream events"
+          >Events</button>
           <button
             type="button"
             role="tab"
-            aria-selected={mode === "raw"}
-            className={"dd-mode-btn" + (mode === "raw" ? " active" : "")}
-            onClick={() => setMode("raw")}
-            title="Show every raw event"
-          >Raw</button>
+            aria-selected={tab === "request"}
+            className={"dd-tab-btn" + (tab === "request" ? " active" : "")}
+            onClick={() => setTab("request")}
+            title="Raw request snapshot"
+          >Request</button>
         </div>
+        {tab === "events" && (
+          <div className="dd-mode" role="tablist" aria-label="Debug view mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "merged"}
+              className={"dd-mode-btn" + (mode === "merged" ? " active" : "")}
+              onClick={() => setMode("merged")}
+              title="Collapse consecutive chunks into one row"
+            >Merged</button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "raw"}
+              className={"dd-mode-btn" + (mode === "raw" ? " active" : "")}
+              onClick={() => setMode("raw")}
+              title="Show every raw event"
+            >Raw</button>
+          </div>
+        )}
         <button
           type="button"
           className="dd-btn"
           onClick={onClear}
-          disabled={count === 0 || !sessionId}
+          disabled={(count === 0 && snapCount === 0) || !sessionId}
           title="Clear events for this session"
         >
           Clear
@@ -1058,19 +1111,231 @@ function DebugDrawer({ open, events, sessionId, onClose, onClear }) {
           <XIcon size={11} />
         </button>
       </div>
-      <div className="dd-body" ref={bodyRef} onScroll={onScroll}>
-        {count === 0 ? (
-          <div className="dd-empty">
-            <div>No debug events yet.</div>
-            <div className="dd-empty-hint">
-              Send a message to see the outgoing payload, streamed chunks, and tool activity.
+      {tab === "events" ? (
+        <div className="dd-body" ref={bodyRef} onScroll={onScroll}>
+          {count === 0 ? (
+            <div className="dd-empty">
+              <div>No debug events yet.</div>
+              <div className="dd-empty-hint">
+                Send a message to see the outgoing payload, streamed chunks, and tool activity.
+              </div>
             </div>
-          </div>
-        ) : (
-          visibleEvents.map((evt) => <DebugEventRow key={evt.id} evt={evt} />)
-        )}
-      </div>
+          ) : (
+            visibleEvents.map((evt) => (
+              <DebugEventRow
+                key={evt.id}
+                evt={evt}
+                onOpenRequest={
+                  evt.kind === "request_raw"
+                    ? () => jumpToRequestTab(evt.data?.turnId)
+                    : undefined
+                }
+              />
+            ))
+          )}
+        </div>
+      ) : (
+        <RequestTab
+          snapshots={requestSnapshots}
+          selectedTurnId={selectedTurnId}
+          onSelectTurn={setSelectedTurnId}
+        />
+      )}
     </aside>
+  );
+}
+
+function RequestTab({ snapshots, selectedTurnId, onSelectTurn }) {
+  if (!snapshots || snapshots.length === 0) {
+    return (
+      <div className="dd-body dd-body-request">
+        <div className="dd-empty">
+          <div>No request snapshots yet.</div>
+          <div className="dd-empty-hint">
+            Send a message to capture the first one.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const chronological = snapshots;
+  const latest = chronological[chronological.length - 1];
+  const selected =
+    (selectedTurnId && chronological.find((s) => s.turnId === selectedTurnId)) ||
+    latest;
+  const selectedIdx = chronological.indexOf(selected);
+  const prev = selectedIdx > 0 ? chronological[selectedIdx - 1] : null;
+
+  return (
+    <div className="dd-body dd-body-request">
+      <div className="dd-req-picker" role="tablist" aria-label="Captured turns">
+        {chronological.slice().reverse().map((snap) => {
+          const idx = chronological.indexOf(snap) + 1;
+          const on = snap.turnId === selected.turnId;
+          return (
+            <button
+              key={snap.turnId}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              className={"dd-req-pill" + (on ? " on" : "")}
+              onClick={() => onSelectTurn(snap.turnId)}
+              title={`Turn #${idx}`}
+            >
+              #{idx}
+            </button>
+          );
+        })}
+      </div>
+      <RequestSnapshot snapshot={selected} prev={prev} indexOneBased={selectedIdx + 1} />
+    </div>
+  );
+}
+
+function RequestSnapshot({ snapshot, prev, indexOneBased }) {
+  const sameAs = (section) => {
+    if (!prev) return null;
+    if (snapshot[section].hash === prev[section].hash) {
+      return `= same as earlier`;
+    }
+    return null;
+  };
+  return (
+    <div className="dd-req-snapshot" data-turn-id={snapshot.turnId}>
+      <RequestSection
+        title="System"
+        size={snapshot.systemPrompt.text.length}
+        hash={snapshot.systemPrompt.hash}
+        sameBadge={sameAs("systemPrompt")}
+        defaultOpen={false}
+      >
+        <pre className="dd-req-pre">{snapshot.systemPrompt.text || "(empty)"}</pre>
+      </RequestSection>
+      <RequestSection
+        title="Env context"
+        size={snapshot.envContext.text.length}
+        hash={snapshot.envContext.hash}
+        sameBadge={sameAs("envContext")}
+        defaultOpen={false}
+      >
+        <pre className="dd-req-pre">{snapshot.envContext.text || "(empty)"}</pre>
+      </RequestSection>
+      <RequestSection
+        title="User memory"
+        size={snapshot.userMemory.text.length}
+        hash={snapshot.userMemory.hash}
+        sameBadge={sameAs("userMemory")}
+        defaultOpen={false}
+      >
+        <pre className="dd-req-pre">{snapshot.userMemory.text || "(empty)"}</pre>
+      </RequestSection>
+      <RequestSection
+        title={`Transcript (${snapshot.transcript.turns.length})`}
+        size={null}
+        hash={snapshot.transcript.hash}
+        sameBadge={sameAs("transcript")}
+        defaultOpen={false}
+      >
+        <RequestTranscript turns={snapshot.transcript.turns} />
+      </RequestSection>
+      <RequestSection
+        title="Current prompt"
+        size={snapshot.prompt.bytes}
+        hash={null}
+        defaultOpen={true}
+      >
+        <pre className="dd-req-pre">{snapshot.prompt.text}</pre>
+      </RequestSection>
+      <div className="dd-req-foot">turn #{indexOneBased} · id {snapshot.turnId.slice(0, 8)}</div>
+    </div>
+  );
+}
+
+function RequestSection({ title, size, hash, sameBadge, defaultOpen, children }) {
+  const [open, setOpen] = React.useState(!!defaultOpen);
+  return (
+    <div className={"dd-req-sec" + (open ? " open" : "")}>
+      <button type="button" className="dd-req-sec-head" onClick={() => setOpen((v) => !v)}>
+        <span className="dd-req-sec-caret"><ChevronRightIcon size={10} /></span>
+        <span className="dd-req-sec-title">{title}</span>
+        <span className="spacer" />
+        {size != null && <span className="dd-req-sec-meta">{size.toLocaleString()} B</span>}
+        {hash && <span className="dd-req-sec-meta mono">hash={hash}</span>}
+        {sameBadge && <span className="dd-req-sec-same">{sameBadge}</span>}
+      </button>
+      {open && <div className="dd-req-sec-body">{children}</div>}
+    </div>
+  );
+}
+
+function RequestTranscript({ turns }) {
+  if (!turns || turns.length === 0) {
+    return <div className="dd-req-empty">(history is empty)</div>;
+  }
+  return (
+    <div className="dd-req-turns">
+      {turns.map((turn, i) => (
+        <RequestTranscriptRow key={i} idx={i} turn={turn} />
+      ))}
+    </div>
+  );
+}
+
+const REQUEST_TRANSCRIPT_FULL_THRESHOLD = 8 * 1024;
+
+function RequestTranscriptRow({ idx, turn }) {
+  const [open, setOpen] = React.useState(false);
+  const [full, setFull] = React.useState(false);
+  const preview = turn.textPreview || "(no text parts)";
+  const bodyText = safeStringify(turn.parts);
+  const oversized = (turn.bytes ?? bodyText.length) > REQUEST_TRANSCRIPT_FULL_THRESHOLD;
+  return (
+    <div className={"dd-req-turn" + (open ? " open" : "")}>
+      <button type="button" className="dd-req-turn-head" onClick={() => setOpen((v) => !v)}>
+        <span className="dd-req-turn-caret"><ChevronRightIcon size={10} /></span>
+        <span className="dd-req-turn-idx">#{idx + 1}</span>
+        <span className={"dd-req-turn-role role-" + (turn.role || "")}>{turn.role || "?"}</span>
+        <span className="dd-req-turn-preview" title={preview}>{preview}</span>
+        <span className="dd-req-turn-bytes">{(turn.bytes ?? 0).toLocaleString()} B</span>
+      </button>
+      {open && (
+        <div className="dd-req-turn-body">
+          <pre className="dd-req-pre">{bodyText}</pre>
+          {oversized && (
+            <button
+              type="button"
+              className="dd-req-full-btn"
+              onClick={() => setFull(true)}
+            >
+              View full
+            </button>
+          )}
+          {full && (
+            <FullTextModal
+              title={`Turn #${idx + 1} · ${turn.role}`}
+              text={bodyText}
+              onClose={() => setFull(false)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FullTextModal({ title, text, onClose }) {
+  return (
+    <div className="dd-full-backdrop" onMouseDown={onClose}>
+      <div className="dd-full-card" onMouseDown={(e) => e.stopPropagation()} role="dialog">
+        <div className="dd-full-head">
+          <span>{title}</span>
+          <button type="button" className="dd-btn" onClick={onClose} aria-label="Close">
+            <XIcon size={11} />
+          </button>
+        </div>
+        <pre className="dd-full-body">{text}</pre>
+      </div>
+    </div>
   );
 }
 
