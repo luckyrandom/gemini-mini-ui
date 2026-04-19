@@ -60,6 +60,19 @@ const api = {
     if (!r.ok && r.status !== 404) throw new Error(`delete failed: ${r.status}`);
   },
 
+  async fork(id, { upToMessageId, title } = {}) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/fork`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ upToMessageId, title }),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      throw new Error(`fork failed: ${r.status} ${body}`);
+    }
+    return await r.json();
+  },
+
   async stream(id, text, onEvent, signal) {
     let r;
     try {

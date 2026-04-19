@@ -260,7 +260,7 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, 
   );
 }
 
-function UserBubble({ m }) {
+function UserBubble({ m, onFork, forkDisabled }) {
   return (
     <div className="msg user">
       <div className="label">
@@ -269,11 +269,22 @@ function UserBubble({ m }) {
         <span title={m.time}>{formatTime(m.time)}</span>
       </div>
       <div className="bubble">{m.text}</div>
+      {onFork && (
+        <div className="footer">
+          <button
+            onClick={() => onFork(m.id)}
+            disabled={forkDisabled}
+            title="Fork into a new session up to and including this message"
+          >
+            <ForkIcon /> fork from here
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function AssistantBubble({ m, streaming }) {
+function AssistantBubble({ m, streaming, onFork, forkDisabled }) {
   const text = m.text || "";
   return (
     <div className="msg assistant">
@@ -295,6 +306,15 @@ function AssistantBubble({ m, streaming }) {
       {!streaming && text && (
         <div className="footer">
           <button onClick={() => navigator.clipboard?.writeText(`[${formatTime(m.time)}] assistant\n\n${text}`)}><CopyIcon /> copy</button>
+          {onFork && (
+            <button
+              onClick={() => onFork(m.id)}
+              disabled={forkDisabled}
+              title="Fork into a new session up to and including this message"
+            >
+              <ForkIcon /> fork from here
+            </button>
+          )}
         </div>
       )}
     </div>

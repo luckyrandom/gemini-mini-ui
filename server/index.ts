@@ -9,6 +9,7 @@
  *   DELETE /api/sessions/:id                          → abort + remove session
  *   POST   /api/sessions/:id/stream {text}            → NDJSON stream of SDK events
  *   POST   /api/sessions/:id/cancel                   → abort in-flight stream
+ *   POST   /api/sessions/:id/fork {upToMessageId,title?} → branch history into a new session
  *   GET    /api/ls?q=<path>                           → directory autocomplete
  *
  * Static files under web/ are served at /. One process, one port.
@@ -216,24 +217,37 @@ function normalizeMessages(records: MessageRecord[]): UiMessage[] {
   return out;
 }
 
+async function loadConversationFor(
+  cwd: string,
+  sessionId: string,
+): Promise<{
+  record: Awaited<ReturnType<typeof loadConversationRecord>>;
+  chatFile: string | null;
+  storage: Storage;
+}> {
+  const storage = new Storage(cwd);
+  await storage.initialize();
+  const files = await storage.listProjectChatFiles();
+  const truncated = sessionId.slice(0, 8);
+  const candidates = files.filter((f) => f.filePath.includes(truncated));
+  const toCheck = candidates.length > 0 ? candidates : files;
+  for (const f of toCheck) {
+    const abs = join(storage.getProjectTempDir(), f.filePath);
+    const loaded = await loadConversationRecord(abs);
+    if (loaded && loaded.sessionId === sessionId) {
+      return { record: loaded, chatFile: abs, storage };
+    }
+  }
+  return { record: null, chatFile: null, storage };
+}
+
 async function loadHistory(
   cwd: string,
   sessionId: string,
 ): Promise<{ messages: UiMessage[]; chatFile: string | null }> {
   try {
-    const storage = new Storage(cwd);
-    await storage.initialize();
-    const files = await storage.listProjectChatFiles();
-    const truncated = sessionId.slice(0, 8);
-    const candidates = files.filter((f) => f.filePath.includes(truncated));
-    const toCheck = candidates.length > 0 ? candidates : files;
-    for (const f of toCheck) {
-      const abs = join(storage.getProjectTempDir(), f.filePath);
-      const loaded = await loadConversationRecord(abs);
-      if (loaded && loaded.sessionId === sessionId) {
-        return { messages: normalizeMessages(loaded.messages), chatFile: abs };
-      }
-    }
+    const { record, chatFile } = await loadConversationFor(cwd, sessionId);
+    if (record) return { messages: normalizeMessages(record.messages), chatFile };
   } catch (err) {
     console.warn('[history] load failed', err);
   }
@@ -493,6 +507,69 @@ async function listDirs(req: IncomingMessage, res: ServerResponse): Promise<void
   }
 }
 
+async function forkSession(
+  sourceId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const srcSlot = sessions.get(sourceId);
+  if (!srcSlot) return sendJson(res, 404, { error: 'session not found' });
+
+  const body = (await readJson(req)) as { upToMessageId?: string; title?: string };
+  const upToId = body.upToMessageId?.trim();
+  if (!upToId) return sendJson(res, 400, { error: 'upToMessageId required' });
+
+  const { record: srcRecord, storage } = await loadConversationFor(
+    srcSlot.record.cwd,
+    srcSlot.record.id,
+  );
+  if (!srcRecord) {
+    return sendJson(res, 409, { error: 'source session has no persisted history' });
+  }
+
+  // Tool-row ids are `${geminiMessageId}:${toolId}`; fold them onto the
+  // parent record so the cut falls on the turn that owns the tool call.
+  const rawTarget = upToId.includes(':') ? (upToId.split(':')[0] ?? upToId) : upToId;
+  const cutIdx = srcRecord.messages.findIndex((m) => m.id === rawTarget);
+  if (cutIdx < 0) return sendJson(res, 404, { error: 'message not found in source' });
+
+  const slice = srcRecord.messages.slice(0, cutIdx + 1);
+
+  const newId = randomUUID();
+  const nowIso = new Date().toISOString();
+  const chatsDir = join(storage.getProjectTempDir(), 'chats');
+  await mkdir(chatsDir, { recursive: true });
+  const stamp = nowIso.slice(0, 16).replace(/:/g, '-');
+  const filename = `session-${stamp}-${newId.slice(0, 8)}.jsonl`;
+  const absPath = join(chatsDir, filename);
+
+  const metadata: Record<string, unknown> = {
+    sessionId: newId,
+    projectHash: srcRecord.projectHash,
+    startTime: nowIso,
+    lastUpdated: nowIso,
+  };
+  if (srcRecord.kind) metadata['kind'] = srcRecord.kind;
+  if (srcRecord.directories) metadata['directories'] = srcRecord.directories;
+
+  const lines = [JSON.stringify(metadata), ...slice.map((m) => JSON.stringify(m))];
+  await writeFile(absPath, lines.join('\n') + '\n', 'utf8');
+
+  const srcTitle = srcSlot.record.title || 'Untitled';
+  const newRecord: SessionRecord = {
+    id: newId,
+    cwd: srcSlot.record.cwd,
+    title: body.title?.trim() || `Fork of ${srcTitle}`,
+    createdAt: nowIso,
+    lastUsedAt: nowIso,
+    ...(srcSlot.record.model ? { model: srcSlot.record.model } : {}),
+  };
+  sessions.set(newId, { record: newRecord });
+  void saveIndex();
+
+  sendJson(res, 201, { record: newRecord, chatFile: absPath });
+}
+
 function cancelSession(id: string, res: ServerResponse): void {
   const slot = sessions.get(id);
   if (!slot) return sendJson(res, 404, { error: 'session not found' });
@@ -514,7 +591,7 @@ const server = createServer(async (req, res) => {
     if (path === '/api/sessions' && req.method === 'POST') return createSession(req, res);
     if (path === '/api/ls' && req.method === 'GET') return listDirs(req, res);
 
-    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm)?$/);
+    const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm|\/fork)?$/);
     if (m) {
       const id = m[1]!;
       const sub = m[2];
@@ -524,6 +601,7 @@ const server = createServer(async (req, res) => {
       if (sub === '/stream' && req.method === 'POST') return streamSession(id, req, res);
       if (sub === '/cancel' && req.method === 'POST') return cancelSession(id, res);
       if (sub === '/confirm' && req.method === 'POST') return confirmSession(id, req, res);
+      if (sub === '/fork' && req.method === 'POST') return forkSession(id, req, res);
     }
 
     sendJson(res, 404, { error: 'not found' });

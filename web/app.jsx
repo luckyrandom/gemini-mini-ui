@@ -278,12 +278,21 @@ function App() {
       });
       // refresh sessions list to pick up title/lastUsedAt bumps
       api.list().then(setSessions).catch(() => {});
-      // refresh chatFile for this session (created on first turn)
-      if (!chatFileById[sid]) {
-        api.get(sid)
-          .then(({ chatFile }) => setChatFileById((prev) => ({ ...prev, [sid]: chatFile || null })))
-          .catch(() => {});
-      }
+      // Pull the persisted history back so message ids match the chat file.
+      // Without this, freshly-streamed messages carry client-only uids and
+      // can't be used as anchors for fork. Only replace when the server has
+      // a chatFile + real messages (so the fake test session, which writes
+      // nothing, keeps the client-side bubbles we just rendered).
+      api.get(sid)
+        .then(({ messages: persisted, chatFile }) => {
+          if (chatFile) {
+            setChatFileById((prev) => ({ ...prev, [sid]: chatFile }));
+          }
+          if (chatFile && Array.isArray(persisted) && persisted.length > 0) {
+            setMessagesById((prev) => ({ ...prev, [sid]: persisted }));
+          }
+        })
+        .catch(() => {});
     }
   };
 
@@ -373,6 +382,22 @@ function App() {
       console.error(err);
       // Refetch to recover on failure.
       api.list().then(setSessions).catch(() => {});
+    }
+  };
+
+  const handleFork = async (upToMessageId) => {
+    if (!activeId || !upToMessageId) return;
+    try {
+      const { record } = await api.fork(activeId, { upToMessageId });
+      setSessions((prev) => [record, ...prev.filter((s) => s.id !== record.id)]);
+      setActiveId(record.id);
+      showToast("Forked to new session");
+    } catch (err) {
+      console.error(err);
+      const msg = /409/.test(err?.message || "")
+        ? "Nothing to fork yet — send a turn first"
+        : "Fork failed";
+      showToast(msg);
     }
   };
 
@@ -473,7 +498,9 @@ function App() {
               )}
               {messages.map((m, i) => {
                 if (m.role === "user") return (
-                  <div key={m.id} className="msg-group"><UserBubble m={m} /></div>
+                  <div key={m.id} className="msg-group">
+                    <UserBubble m={m} onFork={handleFork} forkDisabled={isStreaming} />
+                  </div>
                 );
                 if (m.role === "tool") return (
                   <ToolCallRow key={m.id} m={m} defaultOpen={tweaks.toolCallExpanded} />
@@ -488,7 +515,12 @@ function App() {
                 if (m.role === "assistant") {
                   return (
                     <div key={m.id} className="msg-group">
-                      <AssistantBubble m={m} streaming={!!m.streaming} />
+                      <AssistantBubble
+                        m={m}
+                        streaming={!!m.streaming}
+                        onFork={handleFork}
+                        forkDisabled={isStreaming}
+                      />
                     </div>
                   );
                 }
