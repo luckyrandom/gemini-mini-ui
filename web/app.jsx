@@ -562,6 +562,16 @@ function App() {
 
   const paletteCommands = [
     {
+      id: "new-session-here",
+      label: "New session (same directory)",
+      run: () => newHereRef.current?.(),
+    },
+    {
+      id: "new-session-pick",
+      label: "New session in another directory…",
+      run: () => setPickingDir(true),
+    },
+    {
       id: "switch-model",
       label: "Switch model",
       disabled: !activeSession,
