@@ -475,6 +475,49 @@ function ToolCallRow({ m, defaultOpen }) {
   );
 }
 
+function ToolGroup({ tools, defaultOpen }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (tools.length === 1) {
+    return <ToolCallRow m={tools[0]} defaultOpen={defaultOpen} />;
+  }
+  const hidden = tools.length - 1;
+  const anyAwaiting = tools.some((t) => t.awaitingApproval && t.result == null);
+  const anyRunning = tools.some((t) => t.result == null);
+  if (expanded) {
+    return (
+      <div className="tool-group">
+        <button
+          type="button"
+          className="tool-group-toggle"
+          onClick={() => setExpanded(false)}
+          title="Collapse tool calls"
+        >
+          <ChevronDownIcon size={10} /> collapse {tools.length} tool calls
+        </button>
+        {tools.map((t) => (
+          <ToolCallRow key={t.id} m={t} defaultOpen={defaultOpen} />
+        ))}
+      </div>
+    );
+  }
+  const last = tools[tools.length - 1];
+  return (
+    <div className="tool-group">
+      <button
+        type="button"
+        className="tool-group-toggle"
+        onClick={() => setExpanded(true)}
+        title="Show earlier tool calls"
+      >
+        <ChevronRightIcon size={10} /> show {hidden} earlier tool call{hidden === 1 ? "" : "s"}
+        {anyAwaiting && <span className="awaiting" style={{ marginLeft: 6 }}>awaiting approval</span>}
+        {!anyAwaiting && anyRunning && <span className="tool-group-hint">· running</span>}
+      </button>
+      <ToolCallRow m={last} defaultOpen={defaultOpen} />
+    </div>
+  );
+}
+
 function extractLiveText(live) {
   if (!live) return "";
   const out = live.liveOutput;
@@ -1574,7 +1617,7 @@ function ApprovalModal({ pending, onDecision }) {
 
 Object.assign(window, {
   TopBar, Sidebar, SessionRow,
-  UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
+  UserBubble, AssistantBubble, ErrorBubble, ToolCallRow, ToolGroup,
   ChatHeader, Composer, ModelPicker, ResendMenu, ArtifactPane, DirPicker,
   DebugDrawer,
   ApprovalModal,

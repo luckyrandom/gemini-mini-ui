@@ -120,9 +120,11 @@ test('approval modal: allow lets the tool call complete', async ({ page }) => {
 
   await modal.locator('.approval-btn.primary').click();
 
-  // Modal closes and the tool call now has a result.
+  // Modal closes and the tool call now has a result. Text emitted after the
+  // tool call lives in its own bubble (split around tool calls), so assert
+  // on the trailing assistant bubble.
   await expect(modal).toHaveCount(0);
-  await expect(page.locator('.msg.assistant .bubble')).toContainText('Done writing.', {
+  await expect(page.locator('.msg.assistant .bubble').last()).toContainText('Done writing.', {
     timeout: 5_000,
   });
 });
@@ -141,7 +143,7 @@ test('approval modal: cancel returns an error to the stream', async ({ page }) =
   await modal.getByRole('button', { name: 'Cancel' }).click();
 
   await expect(modal).toHaveCount(0);
-  await expect(page.locator('.msg.assistant .bubble')).toContainText('Cancelled by user.', {
+  await expect(page.locator('.msg.assistant .bubble').last()).toContainText('Cancelled by user.', {
     timeout: 5_000,
   });
 });
@@ -237,6 +239,43 @@ test('command palette: ⌘/ opens, shows Switch model, Escape closes', async ({ 
   // Escape closes.
   await page.keyboard.press('Escape');
   await expect(palette).toHaveCount(0);
+});
+
+test('tool group: consecutive tool calls collapse behind a pill', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+  await textarea.fill('many-tools please');
+  await textarea.press('Enter');
+
+  // Wait for the final assistant text so the full tool run has rendered.
+  await expect(page.locator('.msg.assistant .bubble').last()).toContainText('All done.', {
+    timeout: 5_000,
+  });
+
+  // Three tool calls emitted, only the latest visible, pill offers to unfold.
+  const group = page.locator('.tool-group');
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('.tool-call')).toHaveCount(1);
+  const pill = group.locator('.tool-group-toggle');
+  await expect(pill).toContainText('show 2 earlier tool calls');
+
+  // The visible one is the last call (step-3).
+  await expect(group.locator('.tool-call').first()).toContainText('step-3');
+
+  // Expand → all three rows visible.
+  await pill.click();
+  await expect(group.locator('.tool-call')).toHaveCount(3);
+  await expect(group.locator('.tool-call').nth(0)).toContainText('step-1');
+  await expect(group.locator('.tool-call').nth(2)).toContainText('step-3');
+
+  // Text emitted before and after the tool run stays in separate bubbles,
+  // matching how persisted history renders after a reload.
+  const bubbles = page.locator('.msg.assistant .bubble');
+  await expect(bubbles).toHaveCount(2);
+  await expect(bubbles.first()).toContainText('Running a few things.');
+  await expect(bubbles.last()).toContainText('All done.');
 });
 
 test('tool call: request + result render in a collapsed card', async ({ page }) => {

@@ -174,6 +174,13 @@ function App() {
     });
     const toolByCallId = new Map();
     const pendingTools = new Set();
+    // Track the assistant bubble currently receiving content. When a tool
+    // call arrives we reset this to null so the next content chunk spawns a
+    // fresh assistant bubble — this matches how persisted history is
+    // rendered (text split around tool calls), avoiding a big reshuffle on
+    // refresh.
+    let currentAssistantId = assistantId;
+    const assistantIds = new Set([assistantId]);
 
     const finalizePendingTools = (reason) => {
       if (pendingTools.size === 0) return;
@@ -193,7 +200,11 @@ function App() {
     // bubble so the user sees a single terminal surface per failed turn.
     const emitError = (kind, message) => {
       setMessagesById((prev) => {
-        const list = (prev[sid] || []).filter((m) => m.id !== assistantId);
+        // Drop any empty assistant placeholders we added this turn, keep
+        // ones with accumulated text so partial output survives the error.
+        const list = (prev[sid] || []).filter(
+          (m) => !(assistantIds.has(m.id) && !m.text),
+        );
         list.push({
           id: uid(),
           role: "system",
@@ -216,29 +227,52 @@ function App() {
         const type = evt.type;
         if (type === "content") {
           pushDebug(sid, "chunk", { value: evt.value });
-          setMessagesById((prev) => {
-            const list = (prev[sid] || []).map((m) =>
-              m.id === assistantId ? { ...m, text: (m.text || "") + (evt.value || "") } : m,
-            );
-            return { ...prev, [sid]: list };
-          });
+          const chunk = evt.value || "";
+          if (currentAssistantId == null) {
+            const newId = uid();
+            currentAssistantId = newId;
+            assistantIds.add(newId);
+            setMessagesById((prev) => {
+              const list = [
+                ...(prev[sid] || []),
+                { id: newId, role: "assistant", text: chunk, time: nowTime(), streaming: true },
+              ];
+              return { ...prev, [sid]: list };
+            });
+          } else {
+            const targetId = currentAssistantId;
+            setMessagesById((prev) => {
+              const list = (prev[sid] || []).map((m) =>
+                m.id === targetId ? { ...m, text: (m.text || "") + chunk } : m,
+              );
+              return { ...prev, [sid]: list };
+            });
+          }
         } else if (type === "tool_call_request") {
           const v = evt.value || {};
           pushDebug(sid, "tool_request", v);
           const toolMsgId = uid();
           toolByCallId.set(v.callId, toolMsgId);
           pendingTools.add(toolMsgId);
+          const closedAssistantId = currentAssistantId;
+          currentAssistantId = null;
           setMessagesById((prev) => {
-            const list = [...(prev[sid] || [])];
-            const idx = list.findIndex((m) => m.id === assistantId);
-            const toolMsg = {
+            const curList = prev[sid] || [];
+            // Close out the current assistant bubble (stop the "streaming…"
+            // indicator) and drop it if it never accumulated any text, so
+            // we don't leave an empty bubble above the tool row.
+            const trimmed = curList
+              .filter((m) => !(m.id === closedAssistantId && !m.text))
+              .map((m) =>
+                m.id === closedAssistantId ? { ...m, streaming: false } : m,
+              );
+            trimmed.push({
               id: toolMsgId, role: "tool",
               name: v.name, args: v.args ?? {},
               result: null, duration: null, time: nowTime(),
               startedAt: Date.now(),
-            };
-            if (idx >= 0) list.splice(idx, 0, toolMsg); else list.push(toolMsg);
-            return { ...prev, [sid]: list };
+            });
+            return { ...prev, [sid]: trimmed };
           });
         } else if (type === "tool_call_response") {
           const v = evt.value || {};
@@ -290,7 +324,12 @@ function App() {
           emitError(kind, msg);
         } else if (type === "user_cancelled") {
           pushDebug(sid, "cancelled", { value: evt.value });
-          updateMsg(sid, assistantId, { streaming: false, text: (/* keep what we have */ undefined) });
+          setMessagesById((prev) => {
+            const list = (prev[sid] || []).map((m) =>
+              assistantIds.has(m.id) ? { ...m, streaming: false } : m,
+            );
+            return { ...prev, [sid]: list };
+          });
         } else if (type === "done") {
           pushDebug(sid, "done", {});
         } else {
@@ -311,7 +350,7 @@ function App() {
       setStreamingId((cur) => (cur === sid ? null : cur));
       setMessagesById((prev) => {
         const list = (prev[sid] || []).map((m) =>
-          m.id === assistantId && m.streaming ? { ...m, streaming: false } : m,
+          assistantIds.has(m.id) && m.streaming ? { ...m, streaming: false } : m,
         );
         return { ...prev, [sid]: list };
       });
@@ -653,14 +692,38 @@ function App() {
                     break;
                   }
                 }
-                return messages.map((m, i) => {
+                // Coalesce runs of consecutive tool messages into a single
+                // ToolGroup so long sequences don't bury the conversation.
+                const items = [];
+                let run = null;
+                messages.forEach((m, i) => {
+                  if (m.role === "tool") {
+                    if (!run) {
+                      run = { kind: "toolGroup", tools: [m] };
+                      items.push(run);
+                    } else {
+                      run.tools.push(m);
+                    }
+                  } else {
+                    run = null;
+                    items.push({ kind: "msg", m, i });
+                  }
+                });
+                return items.map((it) => {
+                  if (it.kind === "toolGroup") {
+                    return (
+                      <ToolGroup
+                        key={it.tools[0].id}
+                        tools={it.tools}
+                        defaultOpen={tweaks.toolCallExpanded}
+                      />
+                    );
+                  }
+                  const { m, i } = it;
                   if (m.role === "user") return (
                     <div key={m.id} className="msg-group">
                       <UserBubble m={m} onFork={handleFork} forkDisabled={isStreaming} />
                     </div>
-                  );
-                  if (m.role === "tool") return (
-                    <ToolCallRow key={m.id} m={m} defaultOpen={tweaks.toolCallExpanded} />
                   );
                   if (m.role === "system" || (m.role === "assistant" && m.error)) {
                     return (
