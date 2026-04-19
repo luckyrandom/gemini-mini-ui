@@ -656,6 +656,7 @@ function App() {
           setTweak={setTweak}
           onToast={showToast}
           activeSession={activeSession}
+          onOpenTweaks={() => setTweaksOpen((v) => !v)}
         />
         <div
           className="layout"

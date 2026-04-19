@@ -1,4 +1,4 @@
-function TopBar({ tweaks, setTweak, onToast, activeSession }) {
+function TopBar({ tweaks, setTweak, onToast, activeSession, onOpenTweaks }) {
   const cwd = activeSession ? shortCwd(activeSession.cwd) : "(no session)";
   const copyCwd = () => {
     if (!activeSession) return;
@@ -31,7 +31,7 @@ function TopBar({ tweaks, setTweak, onToast, activeSession }) {
       >
         <PanelRightIcon size={15} />
       </button>
-      <button className="icon-btn" title="Settings">
+      <button className="icon-btn" title="Settings" onClick={onOpenTweaks}>
         <GearIcon size={15} />
       </button>
     </header>
