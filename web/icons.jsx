@@ -137,6 +137,15 @@ const RetryIcon = ({ size = 11 }) => (
     <path d="M20.5 15a9 9 0 1 1-2.12-9.36L23 10" />
   </svg>
 );
+const ForkIcon = ({ size = 11 }) => (
+  <svg {...iconProps(size)}>
+    <circle cx="6" cy="5" r="2" />
+    <circle cx="18" cy="5" r="2" />
+    <circle cx="12" cy="19" r="2" />
+    <path d="M6 7v3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" />
+    <line x1="12" y1="12" x2="12" y2="17" />
+  </svg>
+);
 const SlidersIcon = ({ size = 13 }) => (
   <svg {...iconProps(size)}>
     <line x1="4" y1="6" x2="20" y2="6" />
@@ -152,5 +161,5 @@ Object.assign(window, {
   SidebarIcon, GearIcon, PanelRightIcon, SearchIcon, PlusIcon, MoreIcon,
   CopyIcon, RegenIcon, SendIcon, StopIcon, PaperclipIcon,
   ChevronRightIcon, ChevronDownIcon, ToolIcon, SparkleIcon, AlertIcon,
-  MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon, RetryIcon,
+  MessagesIcon, XIcon, SlidersIcon, InfoIcon, BugIcon, RetryIcon, ForkIcon,
 });

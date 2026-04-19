@@ -1102,6 +1102,47 @@ input, textarea { font: inherit; color: inherit; }
 }
 .model-opt:hover { background: var(--bg-hover); }
 .model-opt.on { color: var(--accent); }
+
+.resend-menu { position: relative; display: inline-flex; }
+.resend-pop {
+  position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+.resend-head {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  padding: 6px 8px 4px;
+}
+.resend-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: inherit; font-size: 12px;
+  color: var(--fg);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.resend-opt:hover { background: var(--bg-hover); }
+.resend-opt.on { color: var(--accent); }
+.resend-current {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  padding: 0 5px;
+  border-radius: 3px;
+}
 .composer-actions .hint {
   margin-left: auto;
   font-size: 10.5px;

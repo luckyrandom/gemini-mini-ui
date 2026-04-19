@@ -260,7 +260,7 @@ function Sidebar({ collapsed, sessions, activeId, streamingId, onSelect, onNew, 
   );
 }
 
-function UserBubble({ m }) {
+function UserBubble({ m, onFork, forkDisabled }) {
   return (
     <div className="msg user">
       <div className="label">
@@ -269,11 +269,30 @@ function UserBubble({ m }) {
         <span title={m.time}>{formatTime(m.time)}</span>
       </div>
       <div className="bubble">{m.text}</div>
+      {onFork && (
+        <div className="footer">
+          <button
+            onClick={() => onFork(m.id)}
+            disabled={forkDisabled}
+            title="Fork into a new session up to and including this message"
+          >
+            <ForkIcon /> fork from here
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function AssistantBubble({ m, streaming }) {
+function AssistantBubble({
+  m,
+  streaming,
+  onFork,
+  forkDisabled,
+  onResend,
+  resendDisabled,
+  currentModel,
+}) {
   const text = m.text || "";
   return (
     <div className="msg assistant">
@@ -295,6 +314,70 @@ function AssistantBubble({ m, streaming }) {
       {!streaming && text && (
         <div className="footer">
           <button onClick={() => navigator.clipboard?.writeText(`[${formatTime(m.time)}] assistant\n\n${text}`)}><CopyIcon /> copy</button>
+          {onFork && (
+            <button
+              onClick={() => onFork(m.id)}
+              disabled={forkDisabled}
+              title="Fork into a new session up to and including this message"
+            >
+              <ForkIcon /> fork from here
+            </button>
+          )}
+          {onResend && (
+            <ResendMenu
+              onResend={onResend}
+              disabled={resendDisabled}
+              currentModel={currentModel}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResendMenu({ onResend, disabled, currentModel }) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  const pick = (val) => {
+    setOpen(false);
+    onResend(val);
+  };
+  return (
+    <div className="resend-menu" ref={wrapRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        title="Rewind and regenerate this turn, optionally with a different model"
+      >
+        <RegenIcon /> regenerate
+      </button>
+      {open && (
+        <div className="resend-pop" role="menu">
+          <div className="resend-head">Regenerate with</div>
+          {MODELS.map((m) => {
+            const on = m.value === (currentModel || "");
+            return (
+              <button
+                type="button"
+                key={m.value || "__default"}
+                className={"resend-opt" + (on ? " on" : "")}
+                role="menuitem"
+                onClick={() => pick(m.value)}
+              >
+                <span>{m.label}</span>
+                {on && <span className="resend-current">current</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1134,7 +1217,7 @@ function ApprovalModal({ pending, onDecision }) {
 Object.assign(window, {
   TopBar, Sidebar, SessionRow,
   UserBubble, AssistantBubble, ErrorBubble, ToolCallRow,
-  ChatHeader, Composer, ModelPicker, ArtifactPane, DirPicker,
+  ChatHeader, Composer, ModelPicker, ResendMenu, ArtifactPane, DirPicker,
   DebugDrawer,
   ApprovalModal,
 });
