@@ -50,35 +50,67 @@ const api = {
   },
 
   async stream(id, text, onEvent, signal) {
-    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/stream`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-      signal,
-    });
+    let r;
+    try {
+      r = await fetch(`/api/sessions/${encodeURIComponent(id)}/stream`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+        signal,
+      });
+    } catch (err) {
+      // fetch() rejects for network-layer failures (DNS, offline, CORS,
+      // abort). Classify as "network" so the UI can differentiate.
+      if (err?.name === "AbortError") throw err;
+      throw streamError("network", err?.message || "Connection failed");
+    }
     if (!r.ok) {
-      const body = await r.text();
-      throw new Error(`stream failed: ${r.status} ${body}`);
+      const body = await r.text().catch(() => "");
+      // Server reachable but rejected the request (409, 500, etc.). Still a
+      // transport-layer failure from the user's perspective.
+      throw streamError("network", `stream failed: ${r.status}${body ? ` ${body}` : ""}`);
     }
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (!line) continue;
-        try { onEvent(JSON.parse(line)); } catch (e) { console.warn("bad event", line, e); }
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          try { onEvent(JSON.parse(line)); } catch (e) { console.warn("bad event", line, e); }
+        }
       }
+    } catch (err) {
+      if (err?.name === "AbortError") throw err;
+      throw streamError("network", err?.message || "Connection dropped");
     }
     const last = buf.trim();
     if (last) { try { onEvent(JSON.parse(last)); } catch {} }
   },
 };
+
+// Attach a kind so callers can render a typed error bubble.
+function streamError(kind, message) {
+  const e = new Error(message);
+  e.kind = kind;
+  return e;
+}
+
+const ERROR_KIND_LABEL = {
+  network: "Network error",
+  model: "Model error",
+  tool: "Tool error",
+};
+
+function errorKindLabel(kind) {
+  return ERROR_KIND_LABEL[kind] || "Error";
+}
 
 function nowTime() {
   return new Date().toISOString();
@@ -135,4 +167,4 @@ function modelShort(value) {
   return m ? m.short : value;
 }
 
-Object.assign(window, { api, MODELS, modelLabel, modelShort, nowTime, formatTime, shortCwd, uid });
+Object.assign(window, { api, MODELS, modelLabel, modelShort, nowTime, formatTime, shortCwd, uid, errorKindLabel });
