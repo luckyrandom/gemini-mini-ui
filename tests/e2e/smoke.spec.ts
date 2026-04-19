@@ -146,6 +146,32 @@ test('approval modal: cancel returns an error to the stream', async ({ page }) =
   });
 });
 
+test('math rendering: display and inline TeX render via KaTeX', async ({ page }) => {
+  await page.goto('/');
+
+  const textarea = page.locator('.composer textarea');
+  await expect(textarea).toBeVisible();
+
+  // Fake echoes back the prompt — include both $$..$$ display and $..$ inline.
+  await textarea.fill('math $$1 - \\frac{1}{3} + \\frac{1}{5} = \\frac{\\pi}{4}$$ plus inline $e^{i\\pi}+1=0$');
+  await textarea.press('Enter');
+
+  const bubble = page.locator('.msg.assistant .bubble');
+  await expect(bubble).toContainText('fake streaming response', { timeout: 5_000 });
+
+  // Display math becomes a .md-math-display block with KaTeX DOM inside.
+  const display = bubble.locator('.md-math-display');
+  await expect(display).toHaveCount(1);
+  await expect(display.locator('.katex')).toBeVisible();
+  // The raw $$..$$ markers must not survive to the rendered text.
+  await expect(bubble).not.toContainText('$$');
+
+  // Inline math renders alongside normal text in the same paragraph.
+  const inline = bubble.locator('.md-math-inline');
+  await expect(inline).toHaveCount(1);
+  await expect(inline.locator('.katex')).toBeVisible();
+});
+
 test('tool call: request + result render in a collapsed card', async ({ page }) => {
   await page.goto('/');
 
