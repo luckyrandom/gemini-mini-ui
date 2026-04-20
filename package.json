@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@google/gemini-cli-core": "file:../gemini-cli/packages/core",
+    "@google/gemini-cli-core": "github:luckyrandom/gemini-cli#core-dist/feat-cancel-with-feedback",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.1"
   },
