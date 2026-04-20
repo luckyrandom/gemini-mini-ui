@@ -877,6 +877,38 @@ function CollapsibleText({ text, lines }) {
   );
 }
 
+// Small LCS-based line diff for the approval "Edit proposed change" flow.
+// Emits a minimal unified-style body (space/+/- prefixes, no headers) that
+// FileDiffView renders directly. Falls back to a full-replace diff when the
+// inputs are too large for the O(n*m) DP to be reasonable in the browser.
+function computeInlineLineDiff(oldText, newText) {
+  const a = String(oldText ?? '').split('\n');
+  const b = String(newText ?? '').split('\n');
+  const n = a.length, m = b.length;
+  if (n * m > 4_000_000) {
+    const out = [];
+    for (const line of a) out.push('-' + line);
+    for (const line of b) out.push('+' + line);
+    return out.join('\n');
+  }
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push(' ' + a[i]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push('-' + a[i]); i++; }
+    else { out.push('+' + b[j]); j++; }
+  }
+  while (i < n) out.push('-' + a[i++]);
+  while (j < m) out.push('+' + b[j++]);
+  return out.join('\n');
+}
+
 function FileDiffView({ result }) {
   const [raw, setRaw] = React.useState(false);
   const lines = String(result.fileDiff).split("\n");
@@ -1846,18 +1878,24 @@ function CommandPalette({ commands, onClose }) {
   );
 }
 
-function ApprovalReviewRow({ item, defaultOpen, staged, onStage, onClear, onFeedbackChange }) {
+function ApprovalReviewRow({ item, defaultOpen, staged, onStage, onClear, onFeedbackChange, onEditedContentChange }) {
   const [open, setOpen] = React.useState(!!defaultOpen);
+  const [editing, setEditing] = React.useState(false);
   const { toolName, args, details, correlationId } = item;
   const diff = details && details.type === 'edit' ? details : null;
   const target = diff?.filePath || diff?.fileName || args?.file_path || args?.command || '';
   const decision = staged?.decision;
   const feedback = staged?.feedback ?? '';
+  const editedContent = staged?.newContent;
+  const hasEdits = typeof editedContent === 'string';
+  const draftContent = hasEdits ? editedContent : (diff?.newContent ?? '');
 
   const badge = decision === 'approved'
-    ? <span style={{ color: 'var(--accent, #7c9cff)', fontSize: '11px', whiteSpace: 'nowrap' }}>✓ approved</span>
+    ? <span style={{ color: 'var(--accent, #7c9cff)', fontSize: '11px', whiteSpace: 'nowrap' }}>✓ approved{hasEdits ? ' (edited)' : ''}</span>
     : decision === 'denied'
     ? <span style={{ color: '#e66', fontSize: '11px', whiteSpace: 'nowrap' }}>✗ denied</span>
+    : hasEdits
+    ? <span style={{ color: 'var(--accent, #7c9cff)', fontSize: '11px', whiteSpace: 'nowrap' }}>edited</span>
     : null;
 
   return (
@@ -1890,8 +1928,51 @@ function ApprovalReviewRow({ item, defaultOpen, staged, onStage, onClear, onFeed
       </div>
       {open && (
         <div style={{ padding: '0 12px 10px' }}>
-          {diff && (
-            <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
+          {diff && !editing && (
+            <FileDiffView result={{
+              fileDiff: hasEdits
+                ? computeInlineLineDiff(diff.originalContent ?? '', draftContent)
+                : diff.fileDiff,
+              filePath: diff.filePath,
+              fileName: diff.fileName,
+              isNewFile: diff.originalContent == null,
+            }} />
+          )}
+          {diff && editing && (
+            <div>
+              <textarea
+                value={draftContent}
+                onChange={(e) => onEditedContentChange && onEditedContentChange(correlationId, e.target.value)}
+                rows={Math.min(24, Math.max(6, String(draftContent).split('\n').length + 1))}
+                spellCheck={false}
+                style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-input, #111)', color: 'inherit', border: '1px solid var(--border, #222)', borderRadius: 4, padding: '6px 8px', fontSize: '12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                        onClick={() => { onEditedContentChange && onEditedContentChange(correlationId, undefined); setEditing(false); }}>
+                  Reset
+                </button>
+                <button className="approval-btn primary" style={{ padding: '2px 8px', fontSize: '11px' }}
+                        onClick={() => setEditing(false)}>
+                  Done editing
+                </button>
+              </div>
+            </div>
+          )}
+          {diff && !editing && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => setEditing(true)}
+                      title="Modify the proposed new file content before approving">
+                {hasEdits ? 'Edit again' : 'Edit'}
+              </button>
+              {hasEdits && (
+                <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                        onClick={() => onEditedContentChange && onEditedContentChange(correlationId, undefined)}>
+                  Discard edits
+                </button>
+              )}
+            </div>
           )}
           {!diff && (
             <div className="approval-args">
@@ -1921,7 +2002,99 @@ function ApprovalReviewRow({ item, defaultOpen, staged, onStage, onClear, onFeed
   );
 }
 
-function ApprovalModal({ pending, queue = [], staged = {}, onStage, onClear, onFeedbackChange, onSubmit, onCancelTurn, onApproveAll, onDenyAll, onDecision }) {
+function SingleApprovalCard({ head, onDecision, proceedRef }) {
+  const diff = head.details && head.details.type === 'edit' ? head.details : null;
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(null); // null = no edits
+  const hasEdits = typeof draft === 'string';
+  const content = hasEdits ? draft : (diff?.newContent ?? '');
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onDecision('proceed', head.correlationId, hasEdits ? draft : undefined);
+    }
+  };
+  return (
+    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
+      <div className="approval-head">
+        <span className="warn"><AlertIcon size={12} /></span>
+        <span>Approve tool call{hasEdits ? ' (edited)' : ''}</span>
+      </div>
+      <div className="approval-body">
+        <div className="approval-tool">
+          <span>tool</span>
+          <span className="tool-name">{head.toolName}</span>
+        </div>
+        {diff && !editing && (
+          <FileDiffView result={{
+            fileDiff: hasEdits
+              ? computeInlineLineDiff(diff.originalContent ?? '', draft)
+              : diff.fileDiff,
+            filePath: diff.filePath,
+            fileName: diff.fileName,
+            isNewFile: diff.originalContent == null,
+          }} />
+        )}
+        {diff && editing && (
+          <div>
+            <textarea
+              value={content}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={Math.min(24, Math.max(6, String(content).split('\n').length + 1))}
+              spellCheck={false}
+              style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-input, #111)', color: 'inherit', border: '1px solid var(--border, #222)', borderRadius: 4, padding: '6px 8px', fontSize: '12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => { setDraft(null); setEditing(false); }}>
+                Reset
+              </button>
+              <button className="approval-btn primary" style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => setEditing(false)}>
+                Done editing
+              </button>
+            </div>
+          </div>
+        )}
+        {diff && !editing && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                    onClick={() => setEditing(true)}
+                    title="Modify the proposed new file content before approving">
+              {hasEdits ? 'Edit again' : 'Edit'}
+            </button>
+            {hasEdits && (
+              <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                      onClick={() => setDraft(null)}>
+                Discard edits
+              </button>
+            )}
+          </div>
+        )}
+        {!diff && (
+          <div className="approval-args">
+            {Object.entries(head.args ?? {}).map(([k, v]) => (
+              <div key={k} className="approval-arg">
+                <div className="approval-arg-key">{k}</div>
+                <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="approval-foot">
+        <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
+        <button ref={proceedRef} className="approval-btn primary"
+                onClick={() => onDecision('proceed', head.correlationId, hasEdits ? draft : undefined)}>
+          Allow{hasEdits ? ' edited' : ''}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ApprovalModal({ pending, queue = [], staged = {}, onStage, onClear, onFeedbackChange, onEditedContentChange, onSubmit, onCancelTurn, onApproveAll, onDenyAll, onDecision }) {
   const proceedRef = React.useRef(null);
   const items = queue.length > 0 ? queue : (pending ? [pending] : []);
   const head = items[0];
@@ -1932,45 +2105,7 @@ function ApprovalModal({ pending, queue = [], staged = {}, onStage, onClear, onF
 
   // Single-approval: instant Allow / Cancel (no staging).
   if (!batch) {
-    const onKey = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
-      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision('proceed'); }
-    };
-    return (
-      <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
-        <div className="approval-head">
-          <span className="warn"><AlertIcon size={12} /></span>
-          <span>Approve tool call</span>
-        </div>
-        <div className="approval-body">
-          <div className="approval-tool">
-            <span>tool</span>
-            <span className="tool-name">{head.toolName}</span>
-          </div>
-          {head.details && head.details.type === 'edit' ? (
-            <FileDiffView result={{
-              fileDiff: head.details.fileDiff,
-              filePath: head.details.filePath,
-              fileName: head.details.fileName,
-              isNewFile: head.details.originalContent == null,
-            }} />
-          ) : (
-            <div className="approval-args">
-              {Object.entries(head.args ?? {}).map(([k, v]) => (
-                <div key={k} className="approval-arg">
-                  <div className="approval-arg-key">{k}</div>
-                  <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="approval-foot">
-          <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
-          <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>Allow</button>
-        </div>
-      </div>
-    );
+    return <SingleApprovalCard head={head} onDecision={onDecision} proceedRef={proceedRef} />;
   }
 
   // Batch review panel: stage locally, submit all at once.
@@ -2004,6 +2139,7 @@ function ApprovalModal({ pending, queue = [], staged = {}, onStage, onClear, onF
             onStage={onStage}
             onClear={onClear}
             onFeedbackChange={onFeedbackChange}
+            onEditedContentChange={onEditedContentChange}
           />
         ))}
       </div>

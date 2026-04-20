@@ -103,14 +103,17 @@ export class ApprovalBridge {
     correlationId: string,
     outcome: ApprovalOutcome,
     feedback?: string,
+    newContent?: string,
   ): Promise<void> {
     if (this.disposed) return;
     this.pending.delete(correlationId);
     const trimmed = typeof feedback === 'string' ? feedback.trim() : '';
-    const payload =
-      outcome === 'cancel' && trimmed.length > 0
-        ? ({ feedback: trimmed } as const)
-        : undefined;
+    let payload: { feedback: string } | { newContent: string } | undefined;
+    if (outcome === 'proceed' && typeof newContent === 'string') {
+      payload = { newContent };
+    } else if (outcome === 'cancel' && trimmed.length > 0) {
+      payload = { feedback: trimmed };
+    }
     await this.bus.publish({
       type: MessageBusType.TOOL_CONFIRMATION_RESPONSE,
       correlationId,

@@ -547,7 +547,7 @@ function App() {
     showToast("Stopped");
   };
 
-  const handleApproval = async (outcome, correlationId) => {
+  const handleApproval = async (outcome, correlationId, newContent) => {
     if (!activeId) return;
     const queue = pendingApprovalsById[activeId];
     if (!Array.isArray(queue) || queue.length === 0) return;
@@ -566,6 +566,9 @@ function App() {
       : outcome === 'cancel_all' ? 'cancel'
       : outcome;
     const targetIds = new Set(targets.map((p) => p.correlationId));
+    const overrideContent = resolvedOutcome === 'proceed' && !bulk && typeof newContent === 'string'
+      ? newContent
+      : undefined;
     // Clear optimistically so the modal closes even if resolved events
     // arrive after the HTTP POSTs return.
     setPendingApprovalsById((prev) => {
@@ -581,7 +584,7 @@ function App() {
     });
     try {
       await Promise.all(
-        targets.map((p) => api.confirm(activeId, p.correlationId, resolvedOutcome)),
+        targets.map((p) => api.confirm(activeId, p.correlationId, resolvedOutcome, undefined, overrideContent)),
       );
     } catch (err) {
       console.error("approval failed", err);
@@ -618,6 +621,18 @@ function App() {
       const cur = prev[activeId] || {};
       const existing = cur[correlationId] || { decision: 'denied' };
       return { ...prev, [activeId]: { ...cur, [correlationId]: { ...existing, feedback } } };
+    });
+  };
+
+  const setEditedContent = (correlationId, newContent) => {
+    if (!activeId) return;
+    setStagedApprovalsById((prev) => {
+      const cur = prev[activeId] || {};
+      const existing = cur[correlationId] || {};
+      const next = { ...existing };
+      if (typeof newContent === 'string') next.newContent = newContent;
+      else delete next.newContent;
+      return { ...prev, [activeId]: { ...cur, [correlationId]: next } };
     });
   };
 
@@ -676,6 +691,7 @@ function App() {
             r.p.correlationId,
             r.s.decision === 'approved' ? 'proceed' : 'cancel',
             r.s.decision === 'denied' ? (r.s.feedback || '').trim() || undefined : undefined,
+            r.s.decision === 'approved' && typeof r.s.newContent === 'string' ? r.s.newContent : undefined,
           ),
         ),
       );
@@ -976,6 +992,7 @@ function App() {
                       onStage={stageDecision}
                       onClear={clearDecision}
                       onFeedbackChange={setFeedback}
+                      onEditedContentChange={setEditedContent}
                       onApproveAll={() => stageAll('approved')}
                       onDenyAll={() => stageAll('denied')}
                       onSubmit={handleSubmitApprovals}

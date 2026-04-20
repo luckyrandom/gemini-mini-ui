@@ -468,8 +468,9 @@ async function confirmSession(
     correlationId?: string;
     outcome?: ApprovalOutcome;
     feedback?: string;
+    newContent?: string;
   };
-  const { correlationId, outcome, feedback } = body;
+  const { correlationId, outcome, feedback, newContent } = body;
   if (!correlationId || (outcome !== 'proceed' && outcome !== 'cancel')) {
     return sendJson(res, 400, { error: 'correlationId and outcome required' });
   }
@@ -478,7 +479,7 @@ async function confirmSession(
   if (!bridge.getPending(correlationId)) {
     return sendJson(res, 404, { error: 'no pending approval for correlationId' });
   }
-  await bridge.resolve(correlationId, outcome, feedback);
+  await bridge.resolve(correlationId, outcome, feedback, newContent);
   res.writeHead(204).end();
 }
 
