@@ -99,9 +99,18 @@ export class ApprovalBridge {
    * Publish the user's decision onto the message bus so the scheduler can
    * resume. Also clears local pending state for this correlationId.
    */
-  async resolve(correlationId: string, outcome: ApprovalOutcome): Promise<void> {
+  async resolve(
+    correlationId: string,
+    outcome: ApprovalOutcome,
+    feedback?: string,
+  ): Promise<void> {
     if (this.disposed) return;
     this.pending.delete(correlationId);
+    const trimmed = typeof feedback === 'string' ? feedback.trim() : '';
+    const payload =
+      outcome === 'cancel' && trimmed.length > 0
+        ? ({ feedback: trimmed } as const)
+        : undefined;
     await this.bus.publish({
       type: MessageBusType.TOOL_CONFIRMATION_RESPONSE,
       correlationId,
@@ -110,6 +119,7 @@ export class ApprovalBridge {
         outcome === 'proceed'
           ? ToolConfirmationOutcome.ProceedOnce
           : ToolConfirmationOutcome.Cancel,
+      ...(payload ? { payload } : {}),
     });
     this.emit({
       type: 'tool_confirmation_resolved',

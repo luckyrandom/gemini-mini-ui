@@ -38,11 +38,11 @@ const api = {
     await fetch(`/api/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
   },
 
-  async confirm(id, correlationId, outcome) {
+  async confirm(id, correlationId, outcome, feedback) {
     const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/confirm`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ correlationId, outcome }),
+      body: JSON.stringify({ correlationId, outcome, feedback }),
     });
     if (!r.ok && r.status !== 409 && r.status !== 404) {
       throw new Error(`confirm failed: ${r.status}`);

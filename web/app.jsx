@@ -18,6 +18,10 @@ function App() {
   const [debugBySid, setDebugBySid] = useState({});
   const [requestRawBySid, setRequestRawBySid] = useState({});
   const [pendingApprovalsById, setPendingApprovalsById] = useState({});
+  // Per-session staged approval decisions while the user reviews a batch.
+  // Shape: { [sid]: { [correlationId]: { decision: 'approved'|'denied', feedback?: string } } }
+  // Nothing reaches the SDK until handleSubmitApprovals fires.
+  const [stagedApprovalsById, setStagedApprovalsById] = useState({});
 
   useEffect(() => {
     const handler = (e) => {
@@ -340,6 +344,16 @@ function App() {
             }
             return { ...prev, [sid]: next };
           });
+          setStagedApprovalsById((prev) => {
+            const cur = prev[sid];
+            if (!cur || !cur[v.correlationId]) return prev;
+            const { [v.correlationId]: _gone, ...rest } = cur;
+            if (Object.keys(rest).length === 0) {
+              const { [sid]: _gs, ...top } = prev;
+              return top;
+            }
+            return { ...prev, [sid]: rest };
+          });
         } else if (type === "debug_request_raw") {
           pushRequestRaw(sid, evt.value);
           pushDebug(sid, "request_raw", evt.value);
@@ -430,10 +444,8 @@ function App() {
     handleSend(text);
   };
 
-  const handleSend = async (text) => {
-    if (!activeId || isStreaming) return;
-    const sid = activeId;
-
+  const sendTextToSession = async (sid, text) => {
+    if (!sid) return;
     pushMsg(sid, { id: uid(), role: "user", text, time: nowTime() });
     const assistantId = uid();
     pushMsg(sid, { id: assistantId, role: "assistant", text: "", time: nowTime(), streaming: true });
@@ -447,6 +459,11 @@ function App() {
     });
 
     await runTurn(sid, assistantId, text, (onEvent) => api.stream(sid, text, onEvent));
+  };
+
+  const handleSend = async (text) => {
+    if (!activeId || isStreaming) return;
+    await sendTextToSession(activeId, text);
   };
 
   const handleResend = async (model) => {
@@ -541,6 +558,115 @@ function App() {
       console.error("approval failed", err);
       showToast("Approval failed");
     }
+  };
+
+  const stageDecision = (correlationId, decision) => {
+    if (!activeId) return;
+    setStagedApprovalsById((prev) => {
+      const cur = prev[activeId] || {};
+      const existing = cur[correlationId] || {};
+      return { ...prev, [activeId]: { ...cur, [correlationId]: { ...existing, decision } } };
+    });
+  };
+
+  const clearDecision = (correlationId) => {
+    if (!activeId) return;
+    setStagedApprovalsById((prev) => {
+      const cur = prev[activeId];
+      if (!cur || !cur[correlationId]) return prev;
+      const { [correlationId]: _gone, ...rest } = cur;
+      if (Object.keys(rest).length === 0) {
+        const { [activeId]: _gs, ...top } = prev;
+        return top;
+      }
+      return { ...prev, [activeId]: rest };
+    });
+  };
+
+  const setFeedback = (correlationId, feedback) => {
+    if (!activeId) return;
+    setStagedApprovalsById((prev) => {
+      const cur = prev[activeId] || {};
+      const existing = cur[correlationId] || { decision: 'denied' };
+      return { ...prev, [activeId]: { ...cur, [correlationId]: { ...existing, feedback } } };
+    });
+  };
+
+  const stageAll = (decision) => {
+    if (!activeId) return;
+    const queue = pendingApprovalsById[activeId];
+    if (!Array.isArray(queue) || queue.length === 0) return;
+    setStagedApprovalsById((prev) => {
+      const cur = prev[activeId] || {};
+      const next = { ...cur };
+      for (const p of queue) {
+        const existing = next[p.correlationId] || {};
+        next[p.correlationId] = { ...existing, decision };
+      }
+      return { ...prev, [activeId]: next };
+    });
+  };
+
+  const handleSubmitApprovals = async () => {
+    if (!activeId) return;
+    const sid = activeId;
+    const queue = pendingApprovalsById[sid];
+    const staged = stagedApprovalsById[sid] || {};
+    if (!Array.isArray(queue) || queue.length === 0) return;
+    // Build the list of resolutions. Skip any row the UI shouldn't have let
+    // through (no staged decision) — caller disables Submit until all decided.
+    const resolutions = queue
+      .map((p) => ({ p, s: staged[p.correlationId] }))
+      .filter((r) => r.s?.decision === 'approved' || r.s?.decision === 'denied');
+    if (resolutions.length === 0) return;
+
+    const targetIds = new Set(resolutions.map((r) => r.p.correlationId));
+    // Clear queue + staged optimistically so the card closes immediately.
+    setPendingApprovalsById((prev) => {
+      const cur = prev[sid];
+      if (!Array.isArray(cur) || cur.length === 0) return prev;
+      const next = cur.filter((p) => !targetIds.has(p.correlationId));
+      if (next.length === cur.length) return prev;
+      if (next.length === 0) {
+        const { [sid]: _gone, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [sid]: next };
+    });
+    setStagedApprovalsById((prev) => {
+      if (!(sid in prev)) return prev;
+      const { [sid]: _gone, ...rest } = prev;
+      return rest;
+    });
+
+    try {
+      await Promise.all(
+        resolutions.map((r) =>
+          api.confirm(
+            sid,
+            r.p.correlationId,
+            r.s.decision === 'approved' ? 'proceed' : 'cancel',
+            r.s.decision === 'denied' ? (r.s.feedback || '').trim() || undefined : undefined,
+          ),
+        ),
+      );
+    } catch (err) {
+      console.error("approval submit failed", err);
+      showToast("Approval failed");
+    }
+  };
+
+  const handleCancelTurn = async () => {
+    if (!activeId) return;
+    const queue = pendingApprovalsById[activeId];
+    if (!Array.isArray(queue) || queue.length === 0) return;
+    // Reuse bulk-cancel path; clears both pending + staged via the drain flow.
+    setStagedApprovalsById((prev) => {
+      if (!(activeId in prev)) return prev;
+      const { [activeId]: _gone, ...rest } = prev;
+      return rest;
+    });
+    await handleApproval('cancel_all');
   };
 
   const handleModelChange = async (model) => {
@@ -816,6 +942,14 @@ function App() {
                     <ApprovalModal
                       pending={pendingApprovalsById[activeId][0]}
                       queue={pendingApprovalsById[activeId]}
+                      staged={stagedApprovalsById[activeId] || {}}
+                      onStage={stageDecision}
+                      onClear={clearDecision}
+                      onFeedbackChange={setFeedback}
+                      onApproveAll={() => stageAll('approved')}
+                      onDenyAll={() => stageAll('denied')}
+                      onSubmit={handleSubmitApprovals}
+                      onCancelTurn={handleCancelTurn}
                       onDecision={handleApproval}
                     />
                   </div>

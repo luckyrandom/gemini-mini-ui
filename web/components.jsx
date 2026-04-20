@@ -1764,11 +1764,20 @@ function CommandPalette({ commands, onClose }) {
   );
 }
 
-function ApprovalItem({ item, defaultOpen, onDecision }) {
+function ApprovalReviewRow({ item, defaultOpen, staged, onStage, onClear, onFeedbackChange }) {
   const [open, setOpen] = React.useState(!!defaultOpen);
   const { toolName, args, details, correlationId } = item;
   const diff = details && details.type === 'edit' ? details : null;
   const target = diff?.filePath || diff?.fileName || args?.file_path || args?.command || '';
+  const decision = staged?.decision;
+  const feedback = staged?.feedback ?? '';
+
+  const badge = decision === 'approved'
+    ? <span style={{ color: 'var(--accent, #7c9cff)', fontSize: '11px', whiteSpace: 'nowrap' }}>✓ approved</span>
+    : decision === 'denied'
+    ? <span style={{ color: '#e66', fontSize: '11px', whiteSpace: 'nowrap' }}>✗ denied</span>
+    : null;
+
   return (
     <div className="approval-item" style={{ borderTop: '1px solid var(--border, #222)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer' }}
@@ -1778,14 +1787,24 @@ function ApprovalItem({ item, defaultOpen, onDecision }) {
         <span style={{ opacity: 0.75, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px' }}>
           {typeof target === 'string' ? target : safeStringify(target)}
         </span>
-        <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
-                onClick={(e) => { e.stopPropagation(); onDecision('cancel', correlationId); }}>
-          Skip
-        </button>
-        <button className="approval-btn primary" style={{ padding: '2px 8px', fontSize: '11px' }}
-                onClick={(e) => { e.stopPropagation(); onDecision('proceed', correlationId); }}>
-          Allow
-        </button>
+        {badge}
+        {decision == null ? (
+          <>
+            <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                    onClick={(e) => { e.stopPropagation(); onStage(correlationId, 'denied'); setOpen(true); }}>
+              Deny
+            </button>
+            <button className="approval-btn primary" style={{ padding: '2px 8px', fontSize: '11px' }}
+                    onClick={(e) => { e.stopPropagation(); onStage(correlationId, 'approved'); }}>
+              Allow
+            </button>
+          </>
+        ) : (
+          <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                  onClick={(e) => { e.stopPropagation(); onClear(correlationId); }}>
+            Undo
+          </button>
+        )}
       </div>
       {open && (
         <div style={{ padding: '0 12px 10px' }}>
@@ -1802,13 +1821,25 @@ function ApprovalItem({ item, defaultOpen, onDecision }) {
               ))}
             </div>
           )}
+          {decision === 'denied' && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: '11px', opacity: 0.7, marginBottom: 4 }}>Feedback (optional — will be drafted into the next message)</div>
+              <textarea
+                value={feedback}
+                onChange={(e) => onFeedbackChange(correlationId, e.target.value)}
+                placeholder="Why are you denying this change?"
+                rows={2}
+                style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-input, #111)', color: 'inherit', border: '1px solid var(--border, #222)', borderRadius: 4, padding: '6px 8px', fontSize: '12px', fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function ApprovalModal({ pending, onDecision, queue = [] }) {
+function ApprovalModal({ pending, queue = [], staged = {}, onStage, onClear, onFeedbackChange, onSubmit, onCancelTurn, onApproveAll, onDenyAll, onDecision }) {
   const proceedRef = React.useRef(null);
   const items = queue.length > 0 ? queue : (pending ? [pending] : []);
   const head = items[0];
@@ -1817,29 +1848,18 @@ function ApprovalModal({ pending, onDecision, queue = [] }) {
   if (items.length === 0) return null;
   const batch = items.length > 1;
 
-  const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); onDecision(batch ? 'cancel_all' : 'cancel'); }
-    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision(batch ? 'proceed_all' : 'proceed'); }
-  };
-
-  return (
-    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
-      <div className="approval-head">
-        <span className="warn"><AlertIcon size={12} /></span>
-        <span>{batch ? `Approve ${items.length} tool calls` : 'Approve tool call'}</span>
-      </div>
-      {batch ? (
-        <div className="approval-body" style={{ padding: 0 }}>
-          {items.map((p, idx) => (
-            <ApprovalItem
-              key={p.correlationId}
-              item={p}
-              defaultOpen={idx === 0}
-              onDecision={onDecision}
-            />
-          ))}
+  // Single-approval: instant Allow / Cancel (no staging).
+  if (!batch) {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision('proceed'); }
+    };
+    return (
+      <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
+        <div className="approval-head">
+          <span className="warn"><AlertIcon size={12} /></span>
+          <span>Approve tool call</span>
         </div>
-      ) : (
         <div className="approval-body">
           <div className="approval-tool">
             <span>tool</span>
@@ -1863,14 +1883,65 @@ function ApprovalModal({ pending, onDecision, queue = [] }) {
             </div>
           )}
         </div>
-      )}
-      <div className="approval-foot">
-        <button className="approval-btn" onClick={() => onDecision(batch ? 'cancel_all' : 'cancel')}>
-          {batch ? 'Cancel all' : 'Cancel'}
-        </button>
-        <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision(batch ? 'proceed_all' : 'proceed')}>
-          {batch ? `Allow all (${items.length})` : 'Allow'}
-        </button>
+        <div className="approval-foot">
+          <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
+          <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>Allow</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Batch review panel: stage locally, submit all at once.
+  let approved = 0, denied = 0;
+  for (const it of items) {
+    const d = staged[it.correlationId]?.decision;
+    if (d === 'approved') approved++;
+    else if (d === 'denied') denied++;
+  }
+  const pendingCount = items.length - approved - denied;
+  const canSubmit = pendingCount === 0;
+
+  return (
+    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval review">
+      <div className="approval-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="warn"><AlertIcon size={12} /></span>
+        <span>Review {items.length} tool calls</span>
+        <span style={{ marginLeft: 'auto' }}>
+          <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={onCancelTurn} title="Cancel the entire turn — denies every pending tool call">
+            Cancel turn
+          </button>
+        </span>
+      </div>
+      <div className="approval-body" style={{ padding: 0 }}>
+        {items.map((p, idx) => (
+          <ApprovalReviewRow
+            key={p.correlationId}
+            item={p}
+            defaultOpen={idx === 0}
+            staged={staged[p.correlationId]}
+            onStage={onStage}
+            onClear={onClear}
+            onFeedbackChange={onFeedbackChange}
+          />
+        ))}
+      </div>
+      <div className="approval-foot" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11px', opacity: 0.75 }}>
+          {approved} approved · {denied} denied · {pendingCount} pending
+        </span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="approval-btn" onClick={onDenyAll} title="Mark every row as denied">Deny all</button>
+          <button className="approval-btn" onClick={onApproveAll} title="Mark every row as approved">Approve all</button>
+          <button
+            ref={proceedRef}
+            className="approval-btn primary"
+            disabled={!canSubmit}
+            onClick={canSubmit ? onSubmit : undefined}
+            title={canSubmit ? 'Send decisions to the agent' : 'Decide every row before submitting'}
+          >
+            Submit
+          </button>
+        </span>
       </div>
     </div>
   );
