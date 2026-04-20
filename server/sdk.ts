@@ -7,6 +7,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { AuthType } from '@google/gemini-cli-core';
+
 import {
   GeminiCliAgent,
   type GeminiCliSession,
@@ -14,17 +16,30 @@ import {
 import { makeFakeSession } from './fake-session.js';
 
 let authResolved = false;
+let resolvedAuthType: AuthType | null = null;
 
 export function resolveAuthMode(): string {
-  if (process.env['GEMINI_API_KEY']) return 'USE_GEMINI (GEMINI_API_KEY)';
-  if (process.env['GOOGLE_GENAI_USE_VERTEXAI'] === 'true') return 'USE_VERTEX_AI';
+  if (process.env['GEMINI_API_KEY']) {
+    resolvedAuthType = AuthType.USE_GEMINI;
+    return 'USE_GEMINI (GEMINI_API_KEY)';
+  }
+  if (process.env['GOOGLE_GENAI_USE_VERTEXAI'] === 'true') {
+    resolvedAuthType = AuthType.USE_VERTEX_AI;
+    return 'USE_VERTEX_AI';
+  }
 
   const credsPath = join(homedir(), '.gemini', 'oauth_creds.json');
   if (existsSync(credsPath)) {
     process.env['GOOGLE_GENAI_USE_GCA'] = 'true';
+    resolvedAuthType = AuthType.LOGIN_WITH_GOOGLE;
     return `LOGIN_WITH_GOOGLE (${credsPath})`;
   }
+  resolvedAuthType = AuthType.COMPUTE_ADC;
   return 'COMPUTE_ADC (fallback)';
+}
+
+export function getResolvedAuthType(): AuthType | null {
+  return resolvedAuthType;
 }
 
 export function ensureAuthResolved(): string {

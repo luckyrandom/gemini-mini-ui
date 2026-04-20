@@ -83,6 +83,12 @@ const api = {
     return consumeNdjson(r, onEvent, "stream");
   },
 
+  async quota() {
+    const r = await fetch("/api/quota");
+    if (!r.ok) return { available: false, reason: "fetch-failed" };
+    return await r.json();
+  },
+
   async resend(id, { model } = {}, onEvent, signal) {
     const r = await safeFetch(`/api/sessions/${encodeURIComponent(id)}/resend`, {
       method: "POST",
@@ -175,6 +181,20 @@ function formatTime(iso) {
   return `${y}-${m}-${day} ${hhmm}`;
 }
 
+// "3h 12m" / "42m" / "59s" — used for quota reset countdowns.
+function formatResetIn(iso) {
+  if (!iso) return "";
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return "";
+  let secs = Math.max(0, Math.round((target - Date.now()) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function shortCwd(cwd) {
   const home = cwd.match(/^\/(Users|home)\/[^/]+/);
   if (home) return "~" + cwd.slice(home[0].length);
@@ -208,4 +228,4 @@ function modelShort(value) {
   return m ? m.short : value;
 }
 
-Object.assign(window, { api, MODELS, modelLabel, modelShort, nowTime, formatTime, shortCwd, uid, errorKindLabel });
+Object.assign(window, { api, MODELS, modelLabel, modelShort, nowTime, formatTime, formatResetIn, shortCwd, uid, errorKindLabel });

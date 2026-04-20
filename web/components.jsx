@@ -1,4 +1,4 @@
-function TopBar({ tweaks, setTweak, onToast, activeSession, onOpenTweaks }) {
+function TopBar({ tweaks, setTweak, onToast, activeSession, onOpenTweaks, quota }) {
   const cwd = activeSession ? shortCwd(activeSession.cwd) : "(no session)";
   const copyCwd = () => {
     if (!activeSession) return;
@@ -24,6 +24,7 @@ function TopBar({ tweaks, setTweak, onToast, activeSession, onOpenTweaks }) {
         <span className="lbl">cwd:</span>{cwd}
       </button>
       <div className="spacer" />
+      <QuotaBadge quota={quota} />
       <button
         className={"icon-btn" + (tweaks.rightPaneOpen ? " active" : "")}
         onClick={() => setTweak("rightPaneOpen", !tweaks.rightPaneOpen)}
@@ -35,6 +36,87 @@ function TopBar({ tweaks, setTweak, onToast, activeSession, onOpenTweaks }) {
         <GearIcon size={15} />
       </button>
     </header>
+  );
+}
+
+function quotaLevel(fraction) {
+  // fraction = remaining (1 = full). Used "remaining" — flip to "used" for color.
+  if (fraction == null) return "ok";
+  const used = 1 - fraction;
+  if (used >= 0.9) return "crit";
+  if (used >= 0.75) return "warn";
+  return "ok";
+}
+
+function QuotaBadge({ quota }) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  if (!quota || quota.available === false) return null;
+  const buckets = Array.isArray(quota.buckets) ? quota.buckets : [];
+  if (buckets.length === 0) return null;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        className="quota-badge"
+        onClick={() => setOpen((v) => !v)}
+        title={buckets
+          .map((b) => `${b.label}: ${Math.round((1 - (b.remainingFraction ?? 0)) * 100)}% used`)
+          .join(" · ")}
+      >
+        {buckets.map((b) => {
+          const remain = b.remainingFraction ?? 0;
+          const lvl = quotaLevel(b.remainingFraction);
+          // 16px ring; r=6, c = 2πr ≈ 37.7
+          const C = 37.7;
+          const dash = remain * C;
+          return (
+            <span key={b.modelId} className="qb-ring" data-level={lvl}>
+              <svg width="16" height="16" viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="6" className="track" />
+                <circle
+                  cx="8" cy="8" r="6" className="fill"
+                  strokeDasharray={`${dash} ${C}`}
+                  transform="rotate(-90 8 8)"
+                />
+              </svg>
+            </span>
+          );
+        })}
+      </button>
+      {open && (
+        <div className="quota-popover">
+          {buckets.map((b) => {
+            const remainPct = b.remainingFraction != null
+              ? Math.round(b.remainingFraction * 100)
+              : null;
+            const lvl = quotaLevel(b.remainingFraction);
+            const resetIn = formatResetIn(b.resetTime);
+            return (
+              <div key={b.modelId} className="row">
+                <span className="label">{b.label}</span>
+                <span className="bar">
+                  <i data-level={lvl} style={{ width: `${remainPct ?? 0}%` }} />
+                </span>
+                <span className="reset">
+                  {remainPct != null ? `${remainPct}% left` : "—"}
+                  {resetIn ? ` · ${resetIn}` : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

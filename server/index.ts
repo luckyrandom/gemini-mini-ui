@@ -32,6 +32,7 @@ import {
 import type { GeminiCliSession } from './vendor/gemini-cli-sdk/index.js';
 import { resumeSession } from './sdk.js';
 import { ApprovalBridge, type ApprovalOutcome } from './approvals.js';
+import { getQuota } from './quota.js';
 
 type SessionRecord = {
   id: string;
@@ -725,6 +726,7 @@ const server = createServer(async (req, res) => {
     if (path === '/api/sessions' && req.method === 'GET') return listSessions(res);
     if (path === '/api/sessions' && req.method === 'POST') return createSession(req, res);
     if (path === '/api/ls' && req.method === 'GET') return listDirs(req, res);
+    if (path === '/api/quota' && req.method === 'GET') return getQuota(res);
 
     const m = path.match(/^\/api\/sessions\/([^/]+)(\/stream|\/cancel|\/confirm|\/fork|\/resend)?$/);
     if (m) {

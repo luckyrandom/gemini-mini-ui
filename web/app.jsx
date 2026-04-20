@@ -22,6 +22,33 @@ function App() {
   // Shape: { [sid]: { [correlationId]: { decision: 'approved'|'denied', feedback?: string } } }
   // Nothing reaches the SDK until handleSubmitApprovals fires.
   const [stagedApprovalsById, setStagedApprovalsById] = useState({});
+  const [quota, setQuota] = useState(null);
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      const q = await api.quota();
+      setQuota(q);
+      return q;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    (async () => {
+      const first = await refreshQuota();
+      if (cancelled) return;
+      // Stop polling if quota isn't applicable in this auth mode.
+      if (!first || first.available === false) return;
+      timer = setInterval(refreshQuota, 60_000);
+    })();
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [refreshQuota]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -396,6 +423,8 @@ function App() {
       });
       // refresh sessions list to pick up title/lastUsedAt bumps + model changes
       api.list().then(setSessions).catch(() => {});
+      // Quota likely shifted after a turn — refetch (server-side cache caps to 60s).
+      refreshQuota();
       // Pull the persisted history back so message ids match the chat file.
       // Without this, freshly-streamed messages carry client-only uids and
       // can't be used as anchors for fork. Only replace when the server has
@@ -832,6 +861,7 @@ function App() {
           onToast={showToast}
           activeSession={activeSession}
           onOpenTweaks={() => setTweaksOpen((v) => !v)}
+          quota={quota}
         />
         <div
           className="layout"
