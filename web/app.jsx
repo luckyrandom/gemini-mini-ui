@@ -116,7 +116,7 @@ function App() {
         setMessagesById((prev) => ({ ...prev, [activeId]: history || [] }));
         setChatFileById((prev) => ({ ...prev, [activeId]: chatFile || null }));
         if (pendingApprovals && pendingApprovals.length > 0) {
-          setPendingApprovalsById((prev) => ({ ...prev, [activeId]: pendingApprovals[0] }));
+          setPendingApprovalsById((prev) => ({ ...prev, [activeId]: pendingApprovals }));
         }
         setHydratedIds((prev) => new Set(prev).add(activeId));
       } catch (err) {
@@ -316,7 +316,11 @@ function App() {
             approvalToToolRow.set(v.correlationId, toolRowId);
             updateMsg(sid, toolRowId, { awaitingApproval: true });
           }
-          setPendingApprovalsById((prev) => ({ ...prev, [sid]: v }));
+          setPendingApprovalsById((prev) => {
+            const cur = prev[sid] || [];
+            if (cur.some((p) => p.correlationId === v.correlationId)) return prev;
+            return { ...prev, [sid]: [...cur, v] };
+          });
         } else if (type === "tool_confirmation_resolved") {
           const v = evt.value || {};
           pushDebug(sid, "tool_confirmation_resolved", v);
@@ -326,9 +330,15 @@ function App() {
             updateMsg(sid, toolRowId, { awaitingApproval: false });
           }
           setPendingApprovalsById((prev) => {
-            if (!prev[sid] || prev[sid].correlationId !== v.correlationId) return prev;
-            const { [sid]: _gone, ...rest } = prev;
-            return rest;
+            const cur = prev[sid];
+            if (!cur || cur.length === 0) return prev;
+            const next = cur.filter((p) => p.correlationId !== v.correlationId);
+            if (next.length === cur.length) return prev;
+            if (next.length === 0) {
+              const { [sid]: _gone, ...rest } = prev;
+              return rest;
+            }
+            return { ...prev, [sid]: next };
           });
         } else if (type === "debug_request_raw") {
           pushRequestRaw(sid, evt.value);
@@ -394,7 +404,7 @@ function App() {
             });
           }
           if (pendingApprovals && pendingApprovals.length > 0) {
-            setPendingApprovalsById((prev) => ({ ...prev, [sid]: pendingApprovals[0] }));
+            setPendingApprovalsById((prev) => ({ ...prev, [sid]: pendingApprovals }));
           }
         })
         .catch(() => {});
@@ -493,14 +503,21 @@ function App() {
 
   const handleApproval = async (outcome) => {
     if (!activeId) return;
-    const pending = pendingApprovalsById[activeId];
+    const queue = pendingApprovalsById[activeId];
+    const pending = Array.isArray(queue) ? queue[0] : null;
     if (!pending) return;
     // Clear optimistically so the modal closes even if the resolved event
     // arrives after the HTTP POST returns.
     setPendingApprovalsById((prev) => {
-      if (!prev[activeId] || prev[activeId].correlationId !== pending.correlationId) return prev;
-      const { [activeId]: _gone, ...rest } = prev;
-      return rest;
+      const cur = prev[activeId];
+      if (!Array.isArray(cur) || cur.length === 0) return prev;
+      const next = cur.filter((p) => p.correlationId !== pending.correlationId);
+      if (next.length === cur.length) return prev;
+      if (next.length === 0) {
+        const { [activeId]: _gone, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [activeId]: next };
     });
     try {
       await api.confirm(activeId, pending.correlationId, outcome);
@@ -777,11 +794,11 @@ function App() {
                   return null;
                 });
               })()}
-              {activeId && pendingApprovalsById[activeId] && (
+              {activeId && Array.isArray(pendingApprovalsById[activeId]) && pendingApprovalsById[activeId].length > 0 && (
                 <div className="msg-group">
                   <div className="msg-bubble assistant" style={{ background: 'transparent', padding: 0, border: 'none' }}>
                     <ApprovalModal
-                      pending={pendingApprovalsById[activeId]}
+                      pending={pendingApprovalsById[activeId][0]}
                       onDecision={handleApproval}
                     />
                   </div>
