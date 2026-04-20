@@ -19,6 +19,7 @@
       chosen message; original stays untouched.
 - [x] **Resend last turn with different model / context.** Mutates the current session
       in place — e.g. switch from Flash to Pro and regenerate. Distinct from fork.
+- [ ] **Full page session management.** A button expand the session list to a full page, where user can manage all sessions. (search, filter, delete, etc.) Also, allow user to write brief notes on the session.
 
 ## Observability
 
@@ -29,52 +30,19 @@
       consecutive `chunk` events into a single collapsed block of concatenated
       text, so a streamed assistant reply reads as one message instead of dozens
       of per-token rows. Raw per-chunk view remains available behind the toggle.
+- [x] **Understand the debug output.** Figure out how the model answers "what is in the dir?" without a tool call. (Resolved: @google/gemini-cli-core auto-injects folder tree via getEnvironmentContext).
 
-## Understand the debug output
+## UI & UX Improvement
 
-- [ ] **Figure out how the model answers "what is in the dir?" without a tool call.**
-      Observed with `gemini-3-flash-preview` on cwd `/Users/chenliangxu/green`: the
-      reply listed real folders (`daily/`, `garden/`, `.obsidian/`, `skill/`, etc.)
-      and files (`README.md`, `AGENTS.md`) accurately, but the debug drawer shows
-      14 chunks over ~1.3s with no tool call recorded. Something is feeding the
-      model directory context we aren't sending explicitly — check system prompt
-      assembly, any implicit file/context attachments, and whether the server
-      default is injecting cwd contents.
+- [x] **Make the panel resizable.** Sidebar and debug drawer can be dragged by their inner edges; widths persist in `localStorage` and restore on load; double-click the handle resets to defaults.
+- [x] **Tool call indicator.** Add a small icon as indicator in the chat message when tool calls happen, while keeping the real tool call in the current display fashion.
+- [x] **Add latex rendering.** e.g. output $$1 - \frac{1}{3} + \frac{1}{5} - \frac{1}{7} + \frac{1}{9} - \dots = \frac{\pi}{4}$$
+- [x] **Add hotkey support.** ⌘↵ to send, enter to send (fixed leading issues), cmd + n for new session, cmd + shift + n for dir selector.
+- [x] **Surface errors in the main UI.** Errors like quota exhaustion are now surfaced in the chat, not just the debug panel.
 
-## UI improvement
+## Future Work / Planned Improvements
 
-- [x] **Make the panel resizable.** Sidebar and debug drawer can be dragged by their
-      inner edges; widths persist in `localStorage` and restore on load; double-click
-      the handle resets to defaults.
-
-## Improve the UI
-
-- [ ] This is confusing, becasue there is actually a tool call heppen in between. However, it is not desired to show the tool call bar in the chat message, as it may call many tools.
-      Maybe, put a small icon as indicator in the chat message, while keep the real tool call in the current display fashion.
-
-> I will add a paragraph about a Python "Hello World" program to the hello_world.md file.I have added a paragraph describing a Python "Hello World" program to the hello_world.md file.
-
-## Add latex rendering
-
-- [ ] e.g. out put $$1 - \frac{1}{3} + \frac{1}{5} - \frac{1}{7} + \frac{1}{9} - \dots = \frac{\pi}{4}$$
-
-## Add hotkey support
-
-- [ ] ⌘↵ to send is missing leading, enther to send
-- [ ] cmd + n for new session in the same dir, cmd + shift + n for new session with dir selector
-
-## Back ground session
-
-- [ ] Is it supported?
-- [ ] What happens when it need attension? (approval?) Notify of done?
-
-## Surface the error. it is only available in the debug panel.
-
-{
-"kind": "model",
-"message": "You have exhausted your capacity on this model. Your quota will reset after 6h10m20s.",
-"value": {
-"kind": "model",
-"message": "You have exhausted your capacity on this model. Your quota will reset after 6h10m20s."
-}
-}
+- [ ] **Approval improvement.**
+    - It is not a good idea to ask for approval for each file edit.
+    - When esc (rejected), it should not continue automatically. It should give the user a chance to specify what is the change they want to make, and then send it to the model again. (not simply reject)
+- [ ] **Background session.** Is it supported? What happens when it needs attention (approval)? Notify when done?
