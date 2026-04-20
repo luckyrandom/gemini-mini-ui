@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@google/gemini-cli-core": "0.40.0-nightly.20260415.g06e7621b2",
+    "@google/gemini-cli-core": "file:../gemini-cli/packages/core",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.1"
   },
