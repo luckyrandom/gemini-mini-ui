@@ -501,17 +501,31 @@ function App() {
     showToast("Stopped");
   };
 
-  const handleApproval = async (outcome) => {
+  const handleApproval = async (outcome, correlationId) => {
     if (!activeId) return;
     const queue = pendingApprovalsById[activeId];
-    const pending = Array.isArray(queue) ? queue[0] : null;
-    if (!pending) return;
-    // Clear optimistically so the modal closes even if the resolved event
-    // arrives after the HTTP POST returns.
+    if (!Array.isArray(queue) || queue.length === 0) return;
+    const bulk = outcome === 'proceed_all' || outcome === 'cancel_all';
+    let targets;
+    if (bulk) {
+      targets = queue.slice();
+    } else if (correlationId) {
+      const match = queue.find((p) => p.correlationId === correlationId);
+      if (!match) return;
+      targets = [match];
+    } else {
+      targets = [queue[0]];
+    }
+    const resolvedOutcome = outcome === 'proceed_all' ? 'proceed'
+      : outcome === 'cancel_all' ? 'cancel'
+      : outcome;
+    const targetIds = new Set(targets.map((p) => p.correlationId));
+    // Clear optimistically so the modal closes even if resolved events
+    // arrive after the HTTP POSTs return.
     setPendingApprovalsById((prev) => {
       const cur = prev[activeId];
       if (!Array.isArray(cur) || cur.length === 0) return prev;
-      const next = cur.filter((p) => p.correlationId !== pending.correlationId);
+      const next = cur.filter((p) => !targetIds.has(p.correlationId));
       if (next.length === cur.length) return prev;
       if (next.length === 0) {
         const { [activeId]: _gone, ...rest } = prev;
@@ -520,7 +534,9 @@ function App() {
       return { ...prev, [activeId]: next };
     });
     try {
-      await api.confirm(activeId, pending.correlationId, outcome);
+      await Promise.all(
+        targets.map((p) => api.confirm(activeId, p.correlationId, resolvedOutcome)),
+      );
     } catch (err) {
       console.error("approval failed", err);
       showToast("Approval failed");
@@ -799,6 +815,7 @@ function App() {
                   <div className="msg-bubble assistant" style={{ background: 'transparent', padding: 0, border: 'none' }}>
                     <ApprovalModal
                       pending={pendingApprovalsById[activeId][0]}
+                      queue={pendingApprovalsById[activeId]}
                       onDecision={handleApproval}
                     />
                   </div>

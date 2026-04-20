@@ -1764,48 +1764,112 @@ function CommandPalette({ commands, onClose }) {
   );
 }
 
-function ApprovalModal({ pending, onDecision }) {
-  const proceedRef = React.useRef(null);
-  React.useEffect(() => { proceedRef.current?.focus(); }, [pending?.correlationId]);
-
-  if (!pending) return null;
-  const { toolName, args, details } = pending;
+function ApprovalItem({ item, defaultOpen, onDecision }) {
+  const [open, setOpen] = React.useState(!!defaultOpen);
+  const { toolName, args, details, correlationId } = item;
   const diff = details && details.type === 'edit' ? details : null;
+  const target = diff?.filePath || diff?.fileName || args?.file_path || args?.command || '';
+  return (
+    <div className="approval-item" style={{ borderTop: '1px solid var(--border, #222)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer' }}
+           onClick={() => setOpen((o) => !o)}>
+        <span style={{ opacity: 0.7, width: 10 }}>{open ? '▾' : '▸'}</span>
+        <span className="tool-name" style={{ minWidth: 90 }}>{toolName}</span>
+        <span style={{ opacity: 0.75, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px' }}>
+          {typeof target === 'string' ? target : safeStringify(target)}
+        </span>
+        <button className="approval-btn" style={{ padding: '2px 8px', fontSize: '11px' }}
+                onClick={(e) => { e.stopPropagation(); onDecision('cancel', correlationId); }}>
+          Skip
+        </button>
+        <button className="approval-btn primary" style={{ padding: '2px 8px', fontSize: '11px' }}
+                onClick={(e) => { e.stopPropagation(); onDecision('proceed', correlationId); }}>
+          Allow
+        </button>
+      </div>
+      {open && (
+        <div style={{ padding: '0 12px 10px' }}>
+          {diff && (
+            <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
+          )}
+          {!diff && (
+            <div className="approval-args">
+              {Object.entries(args ?? {}).map(([k, v]) => (
+                <div key={k} className="approval-arg">
+                  <div className="approval-arg-key">{k}</div>
+                  <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApprovalModal({ pending, onDecision, queue = [] }) {
+  const proceedRef = React.useRef(null);
+  const items = queue.length > 0 ? queue : (pending ? [pending] : []);
+  const head = items[0];
+  React.useEffect(() => { proceedRef.current?.focus(); }, [head?.correlationId]);
+
+  if (items.length === 0) return null;
+  const batch = items.length > 1;
 
   const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); onDecision('cancel'); }
-    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision('proceed'); }
+    if (e.key === 'Escape') { e.preventDefault(); onDecision(batch ? 'cancel_all' : 'cancel'); }
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onDecision(batch ? 'proceed_all' : 'proceed'); }
   };
 
   return (
-    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '620px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
+    <div className="approval-card" style={{ margin: '8px 0', width: '100%', maxWidth: '720px' }} role="region" aria-label="Tool approval" onKeyDown={onKey}>
       <div className="approval-head">
         <span className="warn"><AlertIcon size={12} /></span>
-        <span>Approve tool call</span>
+        <span>{batch ? `Approve ${items.length} tool calls` : 'Approve tool call'}</span>
       </div>
-      <div className="approval-body">
-        <div className="approval-tool">
-          <span>tool</span>
-          <span className="tool-name">{toolName}</span>
+      {batch ? (
+        <div className="approval-body" style={{ padding: 0 }}>
+          {items.map((p, idx) => (
+            <ApprovalItem
+              key={p.correlationId}
+              item={p}
+              defaultOpen={idx === 0}
+              onDecision={onDecision}
+            />
+          ))}
         </div>
-        {diff && (
-          <FileDiffView result={{ fileDiff: diff.fileDiff, filePath: diff.filePath, fileName: diff.fileName, isNewFile: diff.originalContent == null }} />
-        )}
-        {!diff && (
-          <div className="approval-args">
-            {Object.entries(args ?? {}).map(([k, v]) => (
-              <div key={k} className="approval-arg">
-                <div className="approval-arg-key">{k}</div>
-                <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
-              </div>
-            ))}
+      ) : (
+        <div className="approval-body">
+          <div className="approval-tool">
+            <span>tool</span>
+            <span className="tool-name">{head.toolName}</span>
           </div>
-        )}
-      </div>
+          {head.details && head.details.type === 'edit' ? (
+            <FileDiffView result={{
+              fileDiff: head.details.fileDiff,
+              filePath: head.details.filePath,
+              fileName: head.details.fileName,
+              isNewFile: head.details.originalContent == null,
+            }} />
+          ) : (
+            <div className="approval-args">
+              {Object.entries(head.args ?? {}).map(([k, v]) => (
+                <div key={k} className="approval-arg">
+                  <div className="approval-arg-key">{k}</div>
+                  <pre className="approval-arg-val">{highlight(typeof v === 'string' ? v : safeStringify(v), k === 'command' ? 'bash' : 'json')}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="approval-foot">
-        <button className="approval-btn" onClick={() => onDecision('cancel')}>Cancel</button>
-        <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision('proceed')}>
-          Allow
+        <button className="approval-btn" onClick={() => onDecision(batch ? 'cancel_all' : 'cancel')}>
+          {batch ? 'Cancel all' : 'Cancel'}
+        </button>
+        <button ref={proceedRef} className="approval-btn primary" onClick={() => onDecision(batch ? 'proceed_all' : 'proceed')}>
+          {batch ? `Allow all (${items.length})` : 'Allow'}
         </button>
       </div>
     </div>
