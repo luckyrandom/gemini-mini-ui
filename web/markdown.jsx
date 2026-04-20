@@ -1,9 +1,4 @@
-// Lightweight markdown renderer — handles:
-//   - fenced code blocks (```lang\n...\n```)
-//   - inline code `x`
-//   - bold **x**, italic *x*
-//   - lists (- or 1.)
-//   - paragraphs
+// Markdown renderer using react-markdown + remark-gfm + remark-math + rehype-katex.
 // Plus a tiny tokenizer for TS/JS/JSON/bash-ish highlighting.
 
 function highlight(code, lang) {
@@ -60,43 +55,6 @@ function highlight(code, lang) {
   );
 }
 
-function renderTeX(tex, displayMode) {
-  const k = window.katex;
-  if (!k) return { __html: (displayMode ? `$$${tex}$$` : `$${tex}$`).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])) };
-  try {
-    return { __html: k.renderToString(tex, { displayMode, throwOnError: false, output: "html" }) };
-  } catch (e) {
-    return { __html: `<span class="md-math-error">${String(e && e.message || e)}</span>` };
-  }
-}
-
-function MathInline({ tex }) {
-  return <span className="md-math-inline" dangerouslySetInnerHTML={renderTeX(tex, false)} />;
-}
-
-function MathDisplay({ tex }) {
-  return <div className="md-math-display" dangerouslySetInnerHTML={renderTeX(tex, true)} />;
-}
-
-// inline: bold/italic/code/math, render to React fragment
-function renderInline(text, keyPrefix = "") {
-  const parts = [];
-  let idx = 0;
-  // one-pass: inline code wins first, then bold/italic, then $..$ math
-  const re = /(`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|\$([^$\n]+?)\$)/g;
-  let last = 0;
-  for (const m of text.matchAll(re)) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (m[2] !== undefined) parts.push(<code key={`${keyPrefix}c${idx++}`} className="inline">{m[2]}</code>);
-    else if (m[3] !== undefined) parts.push(<strong key={`${keyPrefix}b${idx++}`}>{m[3]}</strong>);
-    else if (m[4] !== undefined) parts.push(<em key={`${keyPrefix}i${idx++}`}>{m[4]}</em>);
-    else if (m[5] !== undefined) parts.push(<MathInline key={`${keyPrefix}m${idx++}`} tex={m[5]} />);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
 function CodeBlock({ lang, code }) {
   const [copied, setCopied] = React.useState(false);
   const handleCopy = () => {
@@ -117,92 +75,46 @@ function CodeBlock({ lang, code }) {
   );
 }
 
-function Markdown({ text, streaming = false }) {
-  // Split by fenced blocks, then within each text run, split display math ($$..$$).
-  const blocks = [];
-  const re = /```(\w*)\n([\s\S]*?)```/g;
-  let last = 0;
-  let m;
-  const pushTextRun = (run) => {
-    const mathRe = /\$\$([\s\S]+?)\$\$/g;
-    let mLast = 0;
-    let mm;
-    while ((mm = mathRe.exec(run)) !== null) {
-      if (mm.index > mLast) blocks.push({ type: "text", value: run.slice(mLast, mm.index) });
-      blocks.push({ type: "math", value: mm[1] });
-      mLast = mm.index + mm[0].length;
+const components = {
+  // react-markdown v9: no `inline` prop. Block code is wrapped in <pre>; use that to detect.
+  code({node, className, children, ...props}) {
+    const isBlock = node?.position?.start?.line !== node?.position?.end?.line || /language-/.test(className || '');
+    const code = String(children).replace(/\n$/, '');
+    if (isBlock) {
+      const match = /language-(\w+)/.exec(className || '');
+      return <CodeBlock lang={match ? match[1] : 'text'} code={code} />;
     }
-    if (mLast < run.length) blocks.push({ type: "text", value: run.slice(mLast) });
-  };
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) pushTextRun(text.slice(last, m.index));
-    blocks.push({ type: "code", lang: m[1], value: m[2] });
-    last = m.index + m[0].length;
+    return <code className={className || "inline"} {...props}>{children}</code>;
+  },
+  // react-markdown v9 wraps block <code> in <pre>; return children directly so CodeBlock renders its own <pre>.
+  pre({children}) { return <>{children}</>; },
+  table({children}) {
+    return <div className="md-table-wrap"><table>{children}</table></div>;
   }
-  if (last < text.length) pushTextRun(text.slice(last));
+};
 
-  const out = [];
-  blocks.forEach((b, bi) => {
-    if (b.type === "code") {
-      out.push(<CodeBlock key={`cb-${bi}`} lang={b.lang} code={b.value} />);
-      return;
-    }
-    if (b.type === "math") {
-      out.push(<MathDisplay key={`md-${bi}`} tex={b.value} />);
-      return;
-    }
-    // render text block: paragraphs + lists
-    const lines = b.value.split("\n");
-    let para = [];
-    let list = null; // {type, items}
-    const flushPara = () => {
-      if (para.length) {
-        const txt = para.join("\n").trim();
-        if (txt) out.push(<p key={`p-${bi}-${out.length}`}>{renderInline(txt, `p${bi}-${out.length}`)}</p>);
-        para = [];
-      }
-    };
-    const flushList = () => {
-      if (list) {
-        const Tag = list.type === "ol" ? "ol" : "ul";
-        out.push(
-          <Tag key={`l-${bi}-${out.length}`}>
-            {list.items.map((it, i) => (
-              <li key={i}>{renderInline(it, `li${bi}-${i}`)}</li>
-            ))}
-          </Tag>
-        );
-        list = null;
-      }
-    };
-    for (const line of lines) {
-      const ulM = line.match(/^\s*[-•]\s+(.*)$/);
-      const olM = line.match(/^\s*\d+\.\s+(.*)$/);
-      const hM = line.match(/^(#{1,3})\s+(.*)$/);
-      if (hM) {
-        flushPara(); flushList();
-        const level = hM[1].length;
-        const H = `h${level}`;
-        out.push(React.createElement(H, { key: `h-${bi}-${out.length}` }, renderInline(hM[2])));
-      } else if (ulM) {
-        flushPara();
-        if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; }
-        list.items.push(ulM[1]);
-      } else if (olM) {
-        flushPara();
-        if (!list || list.type !== "ol") { flushList(); list = { type: "ol", items: [] }; }
-        list.items.push(olM[1]);
-      } else if (line.trim() === "") {
-        flushPara(); flushList();
-      } else {
-        if (list) flushList();
-        para.push(line);
-      }
-    }
-    flushPara(); flushList();
-  });
+function Markdown({ text, streaming = false }) {
+  const ReactMarkdown = window.ReactMarkdown;
+  const remarkGfm = window.remarkGfm;
+  const remarkMath = window.remarkMath;
+  const rehypeKatex = window.rehypeKatex;
 
-  return <div className="md">{out}</div>;
+  if (!ReactMarkdown) {
+    return <div className="md" style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
+  }
+
+  return (
+    <div className="md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={components}
+      >
+        {text}
+      </ReactMarkdown>
+      {streaming && <span className="caret" />}
+    </div>
+  );
 }
 
-Object.assign(window, { Markdown, CodeBlock, highlight, MathInline, MathDisplay });
+Object.assign(window, { Markdown, CodeBlock, highlight });

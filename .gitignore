@@ -11,3 +11,6 @@ dist/
 # Playwright
 test-results/
 playwright-report/
+
+# Built web vendor bundle (produced by `npm run build:web`)
+web/vendor/

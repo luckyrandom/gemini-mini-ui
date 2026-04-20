@@ -690,6 +690,33 @@ input, textarea { font: inherit; color: inherit; }
   font-size: 11.5px;
 }
 
+/* markdown tables */
+.md-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 12px 0;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.md th, .md td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.md th {
+  background: var(--bg-elev-2);
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.md tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .code-block {
   position: relative;
   margin: 6px 0;
@@ -2141,6 +2168,8 @@ input, textarea { font: inherit; color: inherit; }
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+
+  <script src="/vendor/markdown.iife.js"></script>
 
   <script>
     const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
